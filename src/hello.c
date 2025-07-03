@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2009 Zachary T Welch <zw@superlucidity.net>             *
@@ -8,6 +8,7 @@
 #include <config.h>
 #endif
 #include <helper/log.h>
+#include "hello.h"
 
 COMMAND_HANDLER(handle_foo_command)
 {

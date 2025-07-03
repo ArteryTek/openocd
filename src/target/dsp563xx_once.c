@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2009 by Mathias Kuester                                 *
@@ -34,6 +34,8 @@
 #define JTAG_INSTR_DEBUG_REQUEST	0x07
 #define JTAG_INSTR_BYPASS		0x0F
 
+static int dsp563xx_once_reg_read_ex(struct jtag_tap *tap, int flush, uint8_t reg, uint8_t len, uint32_t *data);
+
 /** */
 static inline int dsp563xx_write_dr(struct jtag_tap *tap, uint8_t *dr_in, uint8_t *dr_out, int dr_len, int rti)
 {
@@ -60,7 +62,7 @@ static inline int dsp563xx_once_ir_exec(struct jtag_tap *tap, int flush, uint8_t
 {
 	int err;
 
-	err = dsp563xx_write_dr_u8(tap, 0, instr | (ex << 5) | (go << 6) | (rw << 7), 8, 0);
+	err = dsp563xx_write_dr_u8(tap, NULL, instr | (ex << 5) | (go << 6) | (rw << 7), 8, 0);
 	if (err != ERROR_OK)
 		return err;
 	if (flush)
@@ -185,7 +187,7 @@ int dsp563xx_once_read_register(struct jtag_tap *tap, int flush, struct once_reg
 }
 
 /** once read register with register len */
-int dsp563xx_once_reg_read_ex(struct jtag_tap *tap, int flush, uint8_t reg, uint8_t len, uint32_t *data)
+static int dsp563xx_once_reg_read_ex(struct jtag_tap *tap, int flush, uint8_t reg, uint8_t len, uint32_t *data)
 {
 	int err;
 
@@ -226,7 +228,7 @@ int dsp563xx_once_reg_write(struct jtag_tap *tap, int flush, uint8_t reg, uint32
 	err = dsp563xx_once_ir_exec(tap, flush, reg, 0, 0, 0);
 	if (err != ERROR_OK)
 		return err;
-	err = dsp563xx_write_dr_u32(tap, 0x00, data, 24, 0);
+	err = dsp563xx_write_dr_u32(tap, NULL, data, 24, 0);
 	if (err != ERROR_OK)
 		return err;
 	if (flush)
@@ -242,7 +244,7 @@ int dsp563xx_once_execute_sw_ir(struct jtag_tap *tap, int flush, uint32_t opcode
 	err = dsp563xx_once_ir_exec(tap, flush, DSP563XX_ONCE_OPDBR, 0, 1, 0);
 	if (err != ERROR_OK)
 		return err;
-	err = dsp563xx_write_dr_u32(tap, 0, opcode, 24, 0);
+	err = dsp563xx_write_dr_u32(tap, NULL, opcode, 24, 0);
 	if (err != ERROR_OK)
 		return err;
 	if (flush)
@@ -258,7 +260,7 @@ int dsp563xx_once_execute_dw_ir(struct jtag_tap *tap, int flush, uint32_t opcode
 	err = dsp563xx_once_ir_exec(tap, flush, DSP563XX_ONCE_OPDBR, 0, 0, 0);
 	if (err != ERROR_OK)
 		return err;
-	err = dsp563xx_write_dr_u32(tap, 0, opcode, 24, 0);
+	err = dsp563xx_write_dr_u32(tap, NULL, opcode, 24, 0);
 	if (err != ERROR_OK)
 		return err;
 	if (flush) {
@@ -270,7 +272,7 @@ int dsp563xx_once_execute_dw_ir(struct jtag_tap *tap, int flush, uint32_t opcode
 	err = dsp563xx_once_ir_exec(tap, flush, DSP563XX_ONCE_OPDBR, 0, 1, 0);
 	if (err != ERROR_OK)
 		return err;
-	err = dsp563xx_write_dr_u32(tap, 0, operand, 24, 0);
+	err = dsp563xx_write_dr_u32(tap, NULL, operand, 24, 0);
 	if (err != ERROR_OK)
 		return err;
 	if (flush) {

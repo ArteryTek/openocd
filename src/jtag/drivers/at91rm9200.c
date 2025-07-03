@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2006 by Anders Larsen                                   *
@@ -98,19 +98,19 @@ static uint32_t *pio_base;
 
 /* low level command set
  */
-static bb_value_t at91rm9200_read(void);
+static enum bb_value at91rm9200_read(void);
 static int at91rm9200_write(int tck, int tms, int tdi);
 
 static int at91rm9200_init(void);
 static int at91rm9200_quit(void);
 
-static struct bitbang_interface at91rm9200_bitbang = {
+static const struct bitbang_interface at91rm9200_bitbang = {
 	.read = at91rm9200_read,
 	.write = at91rm9200_write,
-	.blink = 0
+	.blink = NULL,
 };
 
-static bb_value_t at91rm9200_read(void)
+static enum bb_value at91rm9200_read(void)
 {
 	return (pio_base[device->TDO_PIO + PIO_PDSR] & device->TDO_MASK) ? BB_HIGH : BB_LOW;
 }
@@ -157,8 +157,12 @@ COMMAND_HANDLER(at91rm9200_handle_device_command)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
 	/* only if the device name wasn't overwritten by cmdline */
-	if (at91rm9200_device == 0) {
+	if (!at91rm9200_device) {
 		at91rm9200_device = malloc(strlen(CMD_ARGV[0]) + sizeof(char));
+		if (!at91rm9200_device) {
+			LOG_ERROR("Out of memory");
+			return ERROR_FAIL;
+		}
 		strcpy(at91rm9200_device, CMD_ARGV[0]);
 	}
 
@@ -182,7 +186,8 @@ static struct jtag_interface at91rm9200_interface = {
 
 struct adapter_driver at91rm9200_adapter_driver = {
 	.name = "at91rm9200",
-	.transports = jtag_only,
+	.transport_ids = TRANSPORT_JTAG,
+	.transport_preferred_id = TRANSPORT_JTAG,
 	.commands = at91rm9200_command_handlers,
 
 	.init = at91rm9200_init,

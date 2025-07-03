@@ -19,7 +19,7 @@ enum {
 	ARM_CPSR = 16
 };
 
-#define ARMV7_COMMON_MAGIC 0x0A450999
+#define ARMV7_COMMON_MAGIC 0x0A450999U
 
 /* VA to PA translation operations opc2 values*/
 #define V2PCWPR  0
@@ -65,10 +65,8 @@ struct armv7a_cache_common {
 	struct armv7a_arch_cache arch[6];	/* cache info, L1 - L7 */
 	int i_cache_enabled;
 	int d_u_cache_enabled;
-	int auto_cache_enabled;			/* openocd automatic
-						 * cache handling */
 	/* outer unified cache if some */
-	void *outer_cache;
+	struct armv7a_l2x_cache *outer_cache;
 	int (*flush_all_data_cache)(struct target *target);
 };
 
@@ -87,8 +85,9 @@ struct armv7a_mmu_common {
 };
 
 struct armv7a_common {
+	unsigned int common_magic;
+
 	struct arm arm;
-	int common_magic;
 	struct reg_cache *core_cache;
 
 	/* Core Debug Unit */

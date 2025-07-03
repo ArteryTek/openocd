@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -115,8 +115,10 @@ int riscv_batch_run(struct riscv_batch *batch)
 
 	if (bscan_tunnel_ir_width != 0) {
 		/* need to right-shift "in" by one bit, because of clock skew between BSCAN TAP and DM TAP */
-		for (size_t i = 0; i < batch->used_scans; ++i)
-			buffer_shr((batch->fields + i)->in_value, DMI_SCAN_BUF_SIZE, 1);
+		for (size_t i = 0; i < batch->used_scans; ++i) {
+			if ((batch->fields + i)->in_value)
+				buffer_shr((batch->fields + i)->in_value, DMI_SCAN_BUF_SIZE, 1);
+		}
 	}
 
 	for (size_t i = 0; i < batch->used_scans; ++i)
@@ -125,7 +127,7 @@ int riscv_batch_run(struct riscv_batch *batch)
 	return ERROR_OK;
 }
 
-void riscv_batch_add_dmi_write(struct riscv_batch *batch, unsigned address, uint64_t data)
+void riscv_batch_add_dmi_write(struct riscv_batch *batch, unsigned int address, uint64_t data)
 {
 	assert(batch->used_scans < batch->allocated_scans);
 	struct scan_field *field = batch->fields + batch->used_scans;
@@ -138,7 +140,7 @@ void riscv_batch_add_dmi_write(struct riscv_batch *batch, unsigned address, uint
 	batch->used_scans++;
 }
 
-size_t riscv_batch_add_dmi_read(struct riscv_batch *batch, unsigned address)
+size_t riscv_batch_add_dmi_read(struct riscv_batch *batch, unsigned int address)
 {
 	assert(batch->used_scans < batch->allocated_scans);
 	struct scan_field *field = batch->fields + batch->used_scans;
@@ -154,14 +156,14 @@ size_t riscv_batch_add_dmi_read(struct riscv_batch *batch, unsigned address)
 	return batch->read_keys_used++;
 }
 
-unsigned riscv_batch_get_dmi_read_op(struct riscv_batch *batch, size_t key)
+uint32_t riscv_batch_get_dmi_read_op(struct riscv_batch *batch, size_t key)
 {
 	assert(key < batch->read_keys_used);
 	size_t index = batch->read_keys[key];
 	assert(index <= batch->used_scans);
 	uint8_t *base = batch->data_in + DMI_SCAN_BUF_SIZE * index;
 	/* extract "op" field from the DMI read result */
-	return (unsigned)buf_get_u32(base, DTM_DMI_OP_OFFSET, DTM_DMI_OP_LENGTH);
+	return buf_get_u32(base, DTM_DMI_OP_OFFSET, DTM_DMI_OP_LENGTH);
 }
 
 uint32_t riscv_batch_get_dmi_read_data(struct riscv_batch *batch, size_t key)
@@ -209,12 +211,12 @@ void dump_field(int idle, const struct scan_field *field)
 
 		log_printf_lf(LOG_LVL_DEBUG,
 				__FILE__, __LINE__, __PRETTY_FUNCTION__,
-				"%db %s %08x @%02x -> %s %08x @%02x; %di",
+				"%ub %s %08x @%02x -> %s %08x @%02x; %di",
 				field->num_bits, op_string[out_op], out_data, out_address,
 				status_string[in_op], in_data, in_address, idle);
 	} else {
 		log_printf_lf(LOG_LVL_DEBUG,
-				__FILE__, __LINE__, __PRETTY_FUNCTION__, "%db %s %08x @%02x -> ?; %di",
+				__FILE__, __LINE__, __PRETTY_FUNCTION__, "%ub %s %08x @%02x -> ?; %di",
 				field->num_bits, op_string[out_op], out_data, out_address, idle);
 	}
 }

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath                                    *
@@ -44,7 +44,7 @@ static int arm946e_post_debug_entry(struct target *target);
 static void arm946e_pre_restore_context(struct target *target);
 static int arm946e_read_cp15(struct target *target, int reg_addr, uint32_t *value);
 
-int arm946e_init_arch_info(struct target *target,
+static int arm946e_init_arch_info(struct target *target,
 	struct arm946e_common *arm946e,
 	struct jtag_tap *tap)
 {
@@ -79,7 +79,7 @@ int arm946e_init_arch_info(struct target *target,
 	return ERROR_OK;
 }
 
-static int arm946e_target_create(struct target *target, Jim_Interp *interp)
+static int arm946e_target_create(struct target *target)
 {
 	struct arm946e_common *arm946e = calloc(1, sizeof(struct arm946e_common));
 
@@ -173,7 +173,7 @@ static int arm946e_read_cp15(struct target *target, int reg_addr, uint32_t *valu
 	return ERROR_OK;
 }
 
-int arm946e_write_cp15(struct target *target, int reg_addr, uint32_t value)
+static int arm946e_write_cp15(struct target *target, int reg_addr, uint32_t value)
 {
 	int retval = ERROR_OK;
 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
@@ -574,7 +574,7 @@ COMMAND_HANDLER(arm946e_handle_cp15)
 		return retval;
 
 	if (target->state != TARGET_HALTED) {
-		command_print(CMD, "target must be stopped for \"%s\" command", CMD_NAME);
+		command_print(CMD, "Error: target must be stopped for \"%s\" command", CMD_NAME);
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -624,7 +624,7 @@ COMMAND_HANDLER(arm946e_handle_idcache)
 		return retval;
 
 	if (target->state != TARGET_HALTED) {
-		command_print(CMD, "target must be stopped for \"%s\" command", CMD_NAME);
+		command_print(CMD, "Error: target must be stopped for \"%s\" command", CMD_NAME);
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -720,7 +720,7 @@ static const struct command_registration arm946e_exec_command_handlers[] = {
 	COMMAND_REGISTRATION_DONE
 };
 
-const struct command_registration arm946e_command_handlers[] = {
+static const struct command_registration arm946e_command_handlers[] = {
 	{
 		.chain = arm9tdmi_command_handlers,
 	},

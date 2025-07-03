@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /*******************************************************************************
  *   Driver for OpenJTAG Project (www.openjtag.org)                            *
@@ -50,7 +50,7 @@ static const char * const openjtag_variant_names[] = {
 /*
  * OpenJTAG-OpenOCD state conversion
  */
-typedef enum openjtag_tap_state {
+enum openjtag_tap_state {
 	OPENJTAG_TAP_INVALID    = -1,
 	OPENJTAG_TAP_RESET  = 0,
 	OPENJTAG_TAP_IDLE   = 1,
@@ -68,7 +68,7 @@ typedef enum openjtag_tap_state {
 	OPENJTAG_TAP_PAUSE_IR   = 13,
 	OPENJTAG_TAP_EXIT2_IR   = 14,
 	OPENJTAG_TAP_UPDATE_IR  = 15,
-} openjtag_tap_state_t;
+};
 
 /* OPENJTAG access library includes */
 #include "libftdi_helper.h"
@@ -239,10 +239,10 @@ static int openjtag_buf_write_cy7c65215(
 
 	ret = jtag_libusb_control_transfer(usbh, CY7C65215_JTAG_REQUEST,
 									   CY7C65215_JTAG_WRITE, size, 0,
-									   NULL, 0, CY7C65215_USB_TIMEOUT);
-	if (ret < 0) {
-		LOG_ERROR("vendor command failed, error %d", ret);
-		return ERROR_JTAG_DEVICE_ERROR;
+									   NULL, 0, CY7C65215_USB_TIMEOUT, NULL);
+	if (ret != ERROR_OK) {
+		LOG_ERROR("vendor command failed");
+		return ret;
 	}
 
 	if (jtag_libusb_bulk_write(usbh, ep_out, (char *)buf, size,
@@ -306,10 +306,10 @@ static int openjtag_buf_read_cy7c65215(
 
 	ret = jtag_libusb_control_transfer(usbh, CY7C65215_JTAG_REQUEST,
 									   CY7C65215_JTAG_READ, qty, 0,
-									   NULL, 0, CY7C65215_USB_TIMEOUT);
-	if (ret < 0) {
-		LOG_ERROR("vendor command failed, error %d", ret);
-		return ERROR_JTAG_DEVICE_ERROR;
+									   NULL, 0, CY7C65215_USB_TIMEOUT, NULL);
+	if (ret != ERROR_OK) {
+		LOG_ERROR("vendor command failed");
+		return ret;
 	}
 
 	if (jtag_libusb_bulk_read(usbh, ep_in, (char *)buf, qty,
@@ -438,7 +438,7 @@ static int openjtag_init_cy7c65215(void)
 	int ret;
 
 	usbh = NULL;
-	ret = jtag_libusb_open(cy7c65215_vids, cy7c65215_pids, &usbh, NULL);
+	ret = jtag_libusb_open(cy7c65215_vids, cy7c65215_pids, NULL, &usbh, NULL);
 	if (ret != ERROR_OK) {
 		LOG_ERROR("unable to open cy7c65215 device");
 		goto err;
@@ -455,8 +455,8 @@ static int openjtag_init_cy7c65215(void)
 	ret = jtag_libusb_control_transfer(usbh,
 									   CY7C65215_JTAG_REQUEST,
 									   CY7C65215_JTAG_ENABLE,
-									   0, 0, NULL, 0, CY7C65215_USB_TIMEOUT);
-	if (ret < 0) {
+									   0, 0, NULL, 0, CY7C65215_USB_TIMEOUT, NULL);
+	if (ret != ERROR_OK) {
 		LOG_ERROR("could not enable JTAG module");
 		goto err;
 	}
@@ -466,7 +466,7 @@ static int openjtag_init_cy7c65215(void)
 err:
 	if (usbh)
 		jtag_libusb_close(usbh);
-	return ERROR_JTAG_INIT_FAILED;
+	return ret;
 }
 
 static int openjtag_init(void)
@@ -508,8 +508,8 @@ static int openjtag_quit_cy7c65215(void)
 	ret = jtag_libusb_control_transfer(usbh,
 									   CY7C65215_JTAG_REQUEST,
 									   CY7C65215_JTAG_DISABLE,
-									   0, 0, NULL, 0, CY7C65215_USB_TIMEOUT);
-	if (ret < 0)
+									   0, 0, NULL, 0, CY7C65215_USB_TIMEOUT, NULL);
+	if (ret != ERROR_OK)
 		LOG_WARNING("could not disable JTAG module");
 
 	jtag_libusb_close(usbh);
@@ -530,9 +530,20 @@ static int openjtag_quit(void)
 static void openjtag_write_tap_buffer(void)
 {
 	uint32_t written;
+	uint32_t rx_expected = 0;
+
+	/* calculate expected number of return bytes */
+	for (int tx_offs = 0; tx_offs < usb_tx_buf_offs; tx_offs++) {
+		if ((usb_tx_buf[tx_offs] & 0x0F) == 6) {
+			rx_expected++;
+			tx_offs++;
+		} else if ((usb_tx_buf[tx_offs] & 0x0F) == 2) {
+			rx_expected++;
+		}
+	}
 
 	openjtag_buf_write(usb_tx_buf, usb_tx_buf_offs, &written);
-	openjtag_buf_read(usb_rx_buf, usb_tx_buf_offs, &usb_rx_buf_len);
+	openjtag_buf_read(usb_rx_buf, rx_expected, &usb_rx_buf_len);
 
 	usb_tx_buf_offs = 0;
 }
@@ -660,14 +671,12 @@ static void openjtag_execute_reset(struct jtag_command *cmd)
 
 	uint8_t buf = 0x00;
 
-	if (cmd->cmd.reset->trst) {
-		buf = 0x03;
-	} else {
+	/* Pull SRST low for 5 TCLK cycles */
+	if (cmd->cmd.reset->srst) {
 		buf |= 0x04;
 		buf |= 0x05 << 4;
+		openjtag_add_byte(buf);
 	}
-
-	openjtag_add_byte(buf);
 }
 
 static void openjtag_execute_sleep(struct jtag_command *cmd)
@@ -680,8 +689,14 @@ static void openjtag_set_state(uint8_t openocd_state)
 	uint8_t state = openjtag_get_tap_state(openocd_state);
 
 	uint8_t buf = 0;
-	buf = 0x01;
-	buf |= state << 4;
+
+	if (state != OPENJTAG_TAP_RESET) {
+		buf = 0x01;
+		buf |= state << 4;
+	} else {
+		/* Force software TLR */
+		buf = 0x03;
+	}
 
 	openjtag_add_byte(buf);
 }
@@ -733,7 +748,7 @@ static void openjtag_execute_scan(struct jtag_command *cmd)
 static void openjtag_execute_runtest(struct jtag_command *cmd)
 {
 
-	tap_state_t end_state = cmd->cmd.runtest->end_state;
+	enum tap_state end_state = cmd->cmd.runtest->end_state;
 	tap_set_end_state(end_state);
 
 	/* only do a state_move when we're not already in IDLE */
@@ -742,16 +757,20 @@ static void openjtag_execute_runtest(struct jtag_command *cmd)
 		tap_set_state(TAP_IDLE);
 	}
 
-	if (cmd->cmd.runtest->num_cycles > 16)
-		LOG_WARNING("num_cycles > 16 on run test");
-
 	if (openjtag_variant != OPENJTAG_VARIANT_CY7C65215 ||
 		cmd->cmd.runtest->num_cycles) {
 		uint8_t command;
-		command = 7;
-		command |= ((cmd->cmd.runtest->num_cycles - 1) & 0x0F) << 4;
+		unsigned int num_cycles = cmd->cmd.runtest->num_cycles;
 
-		openjtag_add_byte(command);
+		do {
+			const unsigned int num_cycles_cmd = MIN(num_cycles, 16);
+
+			command = 7;
+			command |= ((num_cycles_cmd - 1) & 0x0F) << 4;
+
+			openjtag_add_byte(command);
+			num_cycles -= num_cycles_cmd;
+		} while (num_cycles > 0);
 	}
 
 	tap_set_end_state(end_state);
@@ -788,9 +807,9 @@ static void openjtag_execute_command(struct jtag_command *cmd)
 	}
 }
 
-static int openjtag_execute_queue(void)
+static int openjtag_execute_queue(struct jtag_command *cmd_queue)
 {
-	struct jtag_command *cmd = jtag_command_queue;
+	struct jtag_command *cmd = cmd_queue;
 
 	while (cmd) {
 		openjtag_execute_command(cmd);
@@ -859,6 +878,17 @@ COMMAND_HANDLER(openjtag_handle_variant_command)
 	return ERROR_OK;
 }
 
+COMMAND_HANDLER(openjtag_handle_vid_pid_command)
+{
+	if (CMD_ARGC != 2)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	COMMAND_PARSE_NUMBER(u16, CMD_ARGV[0], openjtag_vid);
+	COMMAND_PARSE_NUMBER(u16, CMD_ARGV[1], openjtag_pid);
+
+	return ERROR_OK;
+}
+
 static const struct command_registration openjtag_subcommand_handlers[] = {
 	{
 		.name = "device_desc",
@@ -873,6 +903,13 @@ static const struct command_registration openjtag_subcommand_handlers[] = {
 		.mode = COMMAND_CONFIG,
 		.help = "set the OpenJTAG variant",
 		.usage = "variant-string",
+	},
+	{
+		.name = "vid_pid",
+		.handler = openjtag_handle_vid_pid_command,
+		.mode = COMMAND_CONFIG,
+		.help = "USB VID and PID of the adapter",
+		.usage = "vid pid",
 	},
 	COMMAND_REGISTRATION_DONE
 };
@@ -894,7 +931,8 @@ static struct jtag_interface openjtag_interface = {
 
 struct adapter_driver openjtag_adapter_driver = {
 	.name = "openjtag",
-	.transports = jtag_only,
+	.transport_ids = TRANSPORT_JTAG,
+	.transport_preferred_id = TRANSPORT_JTAG,
 	.commands = openjtag_command_handlers,
 
 	.init = openjtag_init,

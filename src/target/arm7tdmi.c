@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath                                    *
@@ -669,7 +669,7 @@ int arm7tdmi_init_arch_info(struct target *target,
 	return ERROR_OK;
 }
 
-static int arm7tdmi_target_create(struct target *target, Jim_Interp *interp)
+static int arm7tdmi_target_create(struct target *target)
 {
 	struct arm7_9_common *arm7_9;
 

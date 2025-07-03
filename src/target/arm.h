@@ -58,6 +58,14 @@ enum arm_arch {
 	ARM_ARCH_V8M,
 };
 
+/** Known ARM implementer IDs */
+enum arm_implementer {
+	ARM_IMPLEMENTER_ARM = 0x41,
+	ARM_IMPLEMENTER_INFINEON = 0x49,
+	ARM_IMPLEMENTER_ARM_CHINA = 0x63,
+	ARM_IMPLEMENTER_REALTEK = 0x72,
+};
+
 /**
  * Represent state of an ARM core.
  *
@@ -135,8 +143,8 @@ enum {
 	ARM_VFP_V3_FPSCR,
 };
 
-const char *arm_mode_name(unsigned psr_mode);
-bool is_arm_mode(unsigned psr_mode);
+const char *arm_mode_name(unsigned int psr_mode);
+bool is_arm_mode(unsigned int psr_mode);
 
 /** The PSR "T" and "J" bits define the mode of "classic ARM" cores. */
 enum arm_state {
@@ -155,7 +163,7 @@ enum arm_vfp_version {
 	ARM_VFP_V3,
 };
 
-#define ARM_COMMON_MAGIC 0x0A450A45
+#define ARM_COMMON_MAGIC 0x0A450A45U
 
 /**
  * Represents a generic ARM core, with standard application registers.
@@ -165,7 +173,8 @@ enum arm_vfp_version {
  * registers as traditional ARM cores, and only support Thumb2 instructions.
  */
 struct arm {
-	int common_magic;
+	unsigned int common_magic;
+
 	struct reg_cache *core_cache;
 
 	/** Handle to the PC; valid in all core modes. */
@@ -223,11 +232,21 @@ struct arm {
 			uint32_t crn, uint32_t crm,
 			uint32_t *value);
 
+	/** Read coprocessor to two registers. */
+	int (*mrrc)(struct target *target, int cpnum,
+			uint32_t op, uint32_t crm,
+			uint64_t *value);
+
 	/** Write coprocessor register.  */
 	int (*mcr)(struct target *target, int cpnum,
 			uint32_t op1, uint32_t op2,
 			uint32_t crn, uint32_t crm,
 			uint32_t value);
+
+	/** Write coprocessor from two registers. */
+	int (*mcrr)(struct target *target, int cpnum,
+			uint32_t op, uint32_t crm,
+			uint64_t value);
 
 	void *arch_info;
 
@@ -239,7 +258,7 @@ struct arm {
 };
 
 /** Convert target handle to generic ARM target state handle. */
-static inline struct arm *target_to_arm(struct target *target)
+static inline struct arm *target_to_arm(const struct target *target)
 {
 	assert(target);
 	return target->arch_info;
@@ -252,7 +271,7 @@ static inline bool is_arm(struct arm *arm)
 }
 
 struct arm_algorithm {
-	int common_magic;
+	unsigned int common_magic;
 
 	enum arm_mode core_mode;
 	enum arm_state core_state;
@@ -272,13 +291,14 @@ void arm_free_reg_cache(struct arm *arm);
 struct reg_cache *armv8_build_reg_cache(struct target *target);
 
 extern const struct command_registration arm_command_handlers[];
+extern const struct command_registration arm_all_profiles_command_handlers[];
 
 int arm_arch_state(struct target *target);
-const char *arm_get_gdb_arch(struct target *target);
+const char *arm_get_gdb_arch(const struct target *target);
 int arm_get_gdb_reg_list(struct target *target,
 		struct reg **reg_list[], int *reg_list_size,
 		enum target_register_class reg_class);
-const char *armv8_get_gdb_arch(struct target *target);
+const char *armv8_get_gdb_arch(const struct target *target);
 int armv8_get_gdb_reg_list(struct target *target,
 		struct reg **reg_list[], int *reg_list_size,
 		enum target_register_class reg_class);
@@ -290,14 +310,14 @@ int armv4_5_run_algorithm(struct target *target,
 		int num_mem_params, struct mem_param *mem_params,
 		int num_reg_params, struct reg_param *reg_params,
 		target_addr_t entry_point, target_addr_t exit_point,
-		int timeout_ms, void *arch_info);
+		unsigned int timeout_ms, void *arch_info);
 int armv4_5_run_algorithm_inner(struct target *target,
 		int num_mem_params, struct mem_param *mem_params,
 		int num_reg_params, struct reg_param *reg_params,
 		uint32_t entry_point, uint32_t exit_point,
-		int timeout_ms, void *arch_info,
+		unsigned int timeout_ms, void *arch_info,
 		int (*run_it)(struct target *target, uint32_t exit_point,
-				int timeout_ms, void *arch_info));
+				unsigned int timeout_ms, void *arch_info));
 
 int arm_checksum_memory(struct target *target,
 		target_addr_t address, uint32_t count, uint32_t *checksum);
@@ -305,10 +325,7 @@ int arm_blank_check_memory(struct target *target,
 		struct target_memory_check_block *blocks, int num_blocks, uint8_t erased_value);
 
 void arm_set_cpsr(struct arm *arm, uint32_t cpsr);
-struct reg *arm_reg_current(struct arm *arm, unsigned regnum);
-struct reg *armv8_reg_current(struct arm *arm, unsigned regnum);
-
-extern struct reg arm_gdb_dummy_fp_reg;
-extern struct reg arm_gdb_dummy_fps_reg;
+struct reg *arm_reg_current(struct arm *arm, unsigned int regnum);
+struct reg *armv8_reg_current(struct arm *arm, unsigned int regnum);
 
 #endif /* OPENOCD_TARGET_ARM_H */

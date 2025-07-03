@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /*
  * Copyright (c) 2020, Mellanox Technologies Ltd. - All Rights Reserved
@@ -60,14 +60,14 @@
 
 #ifdef HAVE_SYS_IOCTL_H
 /* Message used to program rshim via ioctl(). */
-typedef struct {
+struct rshim_ioctl_msg {
 	uint32_t addr;
 	uint64_t data;
-} __attribute__((packed)) rshim_ioctl_msg;
+} __attribute__((packed));
 
 enum {
-	RSH_IOC_READ = _IOWR('R', 0, rshim_ioctl_msg),
-	RSH_IOC_WRITE = _IOWR('R', 1, rshim_ioctl_msg),
+	RSH_IOC_READ = _IOWR('R', 0, struct rshim_ioctl_msg),
+	RSH_IOC_WRITE = _IOWR('R', 1, struct rshim_ioctl_msg),
 };
 #endif
 
@@ -104,7 +104,7 @@ static int rshim_dev_read(int chan, int addr, uint64_t *value)
 
 #ifdef HAVE_SYS_IOCTL_H
 	if (rc < 0 && errno == ENOSYS) {
-		rshim_ioctl_msg msg;
+		struct rshim_ioctl_msg msg;
 
 		msg.addr = addr;
 		msg.data = 0;
@@ -126,7 +126,7 @@ static int rshim_dev_write(int chan, int addr, uint64_t value)
 
 #ifdef HAVE_SYS_IOCTL_H
 	if (rc < 0 && errno == ENOSYS) {
-		rshim_ioctl_msg msg;
+		struct rshim_ioctl_msg msg;
 
 		msg.addr = addr;
 		msg.data = value;
@@ -254,8 +254,8 @@ static int rshim_dp_q_write(struct adiv5_dap *dap, unsigned int reg,
 		dp_ctrl_stat = data;
 		break;
 	case DP_SELECT:
-		ap_sel = (data & DP_SELECT_APSEL) >> 24;
-		ap_bank = (data & DP_SELECT_APBANK) >> 4;
+		ap_sel = (data & ADIV5_DP_SELECT_APSEL) >> 24;
+		ap_bank = (data & ADIV5_DP_SELECT_APBANK) >> 4;
 		break;
 	default:
 		LOG_INFO("Unknown command");
@@ -434,10 +434,8 @@ static void rshim_disconnect(struct adiv5_dap *dap)
 
 COMMAND_HANDLER(rshim_dap_device_command)
 {
-	if (CMD_ARGC != 1) {
-		command_print(CMD, "Too many arguments");
+	if (CMD_ARGC != 1)
 		return ERROR_COMMAND_SYNTAX_ERROR;
-	}
 
 	free(rshim_dev_path);
 	rshim_dev_path = strdup(CMD_ARGV[0]);
@@ -510,11 +508,10 @@ static const struct dap_ops rshim_dap_ops = {
 	.quit = rshim_disconnect,
 };
 
-static const char *const rshim_dap_transport[] = { "dapdirect_swd", NULL };
-
 struct adapter_driver rshim_dap_adapter_driver = {
 	.name = "rshim",
-	.transports = rshim_dap_transport,
+	.transport_ids = TRANSPORT_DAPDIRECT_SWD,
+	.transport_preferred_id = TRANSPORT_DAPDIRECT_SWD,
 	.commands = rshim_dap_command_handlers,
 
 	.init = rshim_dap_init,

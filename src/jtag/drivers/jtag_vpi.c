@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /*
  * JTAG to VPI driver
@@ -158,7 +158,7 @@ retry_write:
 
 static int jtag_vpi_receive_cmd(struct vpi_cmd *vpi)
 {
-	unsigned bytes_buffered = 0;
+	unsigned int bytes_buffered = 0;
 	while (bytes_buffered < sizeof(struct vpi_cmd)) {
 		int bytes_to_receive = sizeof(struct vpi_cmd) - bytes_buffered;
 		int retval = read_socket(sockfd, ((char *)vpi) + bytes_buffered, bytes_to_receive);
@@ -254,7 +254,7 @@ static int jtag_vpi_path_move(struct pathmove_command *cmd)
 
 	memset(trans, 0, DIV_ROUND_UP(cmd->num_states, 8));
 
-	for (int i = 0; i < cmd->num_states; i++) {
+	for (unsigned int i = 0; i < cmd->num_states; i++) {
 		if (tap_state_transition(tap_get_state(), true) == cmd->path[i])
 			buf_set_u32(trans, i, 1, 1);
 		tap_set_state(cmd->path[i]);
@@ -272,7 +272,7 @@ static int jtag_vpi_tms(struct tms_command *cmd)
 	return jtag_vpi_tms_seq(cmd->bits, cmd->num_bits);
 }
 
-static int jtag_vpi_state_move(tap_state_t state)
+static int jtag_vpi_state_move(enum tap_state state)
 {
 	if (tap_get_state() == state)
 		return ERROR_OK;
@@ -440,7 +440,7 @@ static int jtag_vpi_scan(struct scan_command *cmd)
 	return ERROR_OK;
 }
 
-static int jtag_vpi_runtest(int cycles, tap_state_t state)
+static int jtag_vpi_runtest(unsigned int num_cycles, enum tap_state state)
 {
 	int retval;
 
@@ -448,29 +448,27 @@ static int jtag_vpi_runtest(int cycles, tap_state_t state)
 	if (retval != ERROR_OK)
 		return retval;
 
-	retval = jtag_vpi_queue_tdi(NULL, cycles, NO_TAP_SHIFT);
+	retval = jtag_vpi_queue_tdi(NULL, num_cycles, NO_TAP_SHIFT);
 	if (retval != ERROR_OK)
 		return retval;
 
 	return jtag_vpi_state_move(state);
 }
 
-static int jtag_vpi_stableclocks(int cycles)
+static int jtag_vpi_stableclocks(unsigned int num_cycles)
 {
 	uint8_t tms_bits[4];
-	int cycles_remain = cycles;
+	unsigned int cycles_remain = num_cycles;
 	int nb_bits;
 	int retval;
-	const int CYCLES_ONE_BATCH = sizeof(tms_bits) * 8;
-
-	assert(cycles >= 0);
+	const unsigned int cycles_one_batch = sizeof(tms_bits) * 8;
 
 	/* use TMS=1 in TAP RESET state, TMS=0 in all other stable states */
 	memset(&tms_bits, (tap_get_state() == TAP_RESET) ? 0xff : 0x00, sizeof(tms_bits));
 
 	/* send the TMS bits */
 	while (cycles_remain > 0) {
-		nb_bits = (cycles_remain < CYCLES_ONE_BATCH) ? cycles_remain : CYCLES_ONE_BATCH;
+		nb_bits = (cycles_remain < cycles_one_batch) ? cycles_remain : cycles_one_batch;
 		retval = jtag_vpi_tms_seq(tms_bits, nb_bits);
 		if (retval != ERROR_OK)
 			return retval;
@@ -480,12 +478,12 @@ static int jtag_vpi_stableclocks(int cycles)
 	return ERROR_OK;
 }
 
-static int jtag_vpi_execute_queue(void)
+static int jtag_vpi_execute_queue(struct jtag_command *cmd_queue)
 {
 	struct jtag_command *cmd;
 	int retval = ERROR_OK;
 
-	for (cmd = jtag_command_queue; retval == ERROR_OK && cmd;
+	for (cmd = cmd_queue; retval == ERROR_OK && cmd;
 	     cmd = cmd->next) {
 		switch (cmd->type) {
 		case JTAG_RESET:
@@ -593,10 +591,8 @@ static int jtag_vpi_quit(void)
 
 COMMAND_HANDLER(jtag_vpi_set_port)
 {
-	if (CMD_ARGC == 0) {
-		LOG_ERROR("Command \"jtag_vpi set_port\" expects 1 argument (TCP port number)");
+	if (CMD_ARGC == 0)
 		return ERROR_COMMAND_SYNTAX_ERROR;
-	}
 
 	COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], server_port);
 	LOG_INFO("jtag_vpi: server port set to %u", server_port);
@@ -607,10 +603,8 @@ COMMAND_HANDLER(jtag_vpi_set_port)
 COMMAND_HANDLER(jtag_vpi_set_address)
 {
 
-	if (CMD_ARGC == 0) {
-		LOG_ERROR("Command \"jtag_vpi set_address\" expects 1 argument (IP address)");
+	if (CMD_ARGC == 0)
 		return ERROR_COMMAND_SYNTAX_ERROR;
-	}
 
 	free(server_address);
 	server_address = strdup(CMD_ARGV[0]);
@@ -621,10 +615,8 @@ COMMAND_HANDLER(jtag_vpi_set_address)
 
 COMMAND_HANDLER(jtag_vpi_stop_sim_on_exit_handler)
 {
-	if (CMD_ARGC != 1) {
-		LOG_ERROR("Command \"jtag_vpi stop_sim_on_exit\" expects 1 argument (on|off)");
+	if (CMD_ARGC != 1)
 		return ERROR_COMMAND_SYNTAX_ERROR;
-	}
 
 	COMMAND_PARSE_ON_OFF(CMD_ARGV[0], stop_sim_on_exit);
 	return ERROR_OK;
@@ -674,7 +666,8 @@ static struct jtag_interface jtag_vpi_interface = {
 
 struct adapter_driver jtag_vpi_adapter_driver = {
 	.name = "jtag_vpi",
-	.transports = jtag_only,
+	.transport_ids = TRANSPORT_JTAG,
+	.transport_preferred_id = TRANSPORT_JTAG,
 	.commands = jtag_vpi_command_handlers,
 
 	.init = jtag_vpi_init,

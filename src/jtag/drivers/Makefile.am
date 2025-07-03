@@ -123,6 +123,17 @@ ulinkdir = $(pkgdatadir)/OpenULINK
 dist_ulink_DATA = $(ULINK_FIRMWARE)/ulink_firmware.hex
 %C%_libocdjtagdrivers_la_LIBADD += -lm
 endif
+
+if ANGIE
+  angiedir = $(pkgdatadir)/angie
+  DRIVERFILES     += %D%/angie.c
+  DRIVERFILES     += %D%/angie/include/msgtypes.h
+  EXTRA_DIST      += %D%/angie/README
+  dist_angie_DATA  = %D%/angie/angie_firmware.bin
+  dist_angie_DATA += %D%/angie/angie_bitstream.bit
+  %C%_libocdjtagdrivers_la_LIBADD += -lm
+endif
+
 if VSLLINK
 DRIVERFILES += %D%/versaloon/usbtoxxx/usbtogpio.c
 DRIVERFILES += %D%/versaloon/usbtoxxx/usbtojtagraw.c
@@ -135,7 +146,7 @@ endif
 if ARMJTAGEW
 DRIVERFILES += %D%/arm-jtag-ew.c
 endif
-if BUSPIRATE
+if BUS_PIRATE
 DRIVERFILES += %D%/buspirate.c
 endif
 if REMOTE_BITBANG
@@ -153,6 +164,9 @@ endif
 if RSHIM
 DRIVERFILES += %D%/rshim.c
 endif
+if DMEM
+DRIVERFILES += %D%/dmem.c
+endif
 if OSBDM
 DRIVERFILES += %D%/osbdm.c
 endif
@@ -161,6 +175,9 @@ DRIVERFILES += %D%/opendous.c
 endif
 if SYSFSGPIO
 DRIVERFILES += %D%/sysfsgpio.c
+endif
+if LINUXSPIDEV
+DRIVERFILES += %D%/linuxspidev.c
 endif
 if XLNX_PCIE_XVC
 DRIVERFILES += %D%/xlnx-pcie-xvc.c

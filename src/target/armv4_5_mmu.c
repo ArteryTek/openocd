@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath                                    *
@@ -107,8 +107,10 @@ int armv4_5_mmu_read_physical(struct target *target,
 {
 	int retval;
 
-	if (target->state != TARGET_HALTED)
+	if (target->state != TARGET_HALTED) {
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
+	}
 
 	/* disable MMU and data (or unified) cache */
 	retval = armv4_5_mmu->disable_mmu_caches(target, 1, 1, 0);
@@ -135,8 +137,10 @@ int armv4_5_mmu_write_physical(struct target *target,
 {
 	int retval;
 
-	if (target->state != TARGET_HALTED)
+	if (target->state != TARGET_HALTED) {
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
+	}
 
 	/* disable MMU and data (or unified) cache */
 	retval = armv4_5_mmu->disable_mmu_caches(target, 1, 1, 0);

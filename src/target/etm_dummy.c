@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2007 by Dominic Rath                                    *
@@ -65,7 +65,7 @@ static int etm_dummy_init(struct etm_context *etm_ctx)
 	return ERROR_OK;
 }
 
-static trace_status_t etm_dummy_status(struct etm_context *etm_ctx)
+static enum trace_status etm_dummy_status(struct etm_context *etm_ctx)
 {
 	return TRACE_IDLE;
 }

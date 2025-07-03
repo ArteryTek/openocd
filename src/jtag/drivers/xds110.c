@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2017 by Texas Instruments, Inc.                         *
@@ -172,7 +172,7 @@
 #define CMD_RUNTEST      3
 #define CMD_STABLECLOCKS 4
 
-/* Array to convert from OpenOCD tap_state_t to XDS JTAG state */
+/* Array to convert from OpenOCD enum tap_state to XDS JTAG state */
 static const uint32_t xds_jtag_state[] = {
 	XDS_JTAG_STATE_EXIT2_DR,   /* TAP_DREXIT2   = 0x0 */
 	XDS_JTAG_STATE_EXIT1_DR,   /* TAP_DREXIT1   = 0x1 */
@@ -579,9 +579,6 @@ static bool usb_get_response(uint32_t *total_bytes_read, uint32_t timeout)
 
 static bool usb_send_command(uint16_t size)
 {
-	int written;
-	bool success = true;
-
 	/* Check the packet length */
 	if (size > USB_PAYLOAD_SIZE)
 		return false;
@@ -596,13 +593,7 @@ static bool usb_send_command(uint16_t size)
 	size += 3;
 
 	/* Send the data via the USB connection */
-	success = usb_write(xds110.write_packet, (int)size, &written);
-
-	/* Check if the correct number of bytes was written */
-	if (written != (int)size)
-		success = false;
-
-	return success;
+	return usb_write(xds110.write_packet, (int)size, NULL);
 }
 
 /***************************************************************************
@@ -1300,7 +1291,7 @@ static int xds110_swd_run_queue(void)
 
 	/* Transfer results into caller's buffers */
 	for (result = 0; result < xds110.txn_result_count; result++)
-		if (xds110.txn_dap_results[result] != 0)
+		if (xds110.txn_dap_results[result])
 			*xds110.txn_dap_results[result] = dap_results[result];
 
 	xds110.txn_request_size = 0;
@@ -1354,11 +1345,13 @@ static void xds110_swd_queue_cmd(uint8_t cmd, uint32_t *value)
 static void xds110_swd_read_reg(uint8_t cmd, uint32_t *value,
 	uint32_t ap_delay_clk)
 {
+	assert(cmd & SWD_CMD_RNW);
 	xds110_swd_queue_cmd(cmd, value);
 }
 static void xds110_swd_write_reg(uint8_t cmd, uint32_t value,
 	uint32_t ap_delay_clk)
 {
+	assert(!(cmd & SWD_CMD_RNW));
 	xds110_swd_queue_cmd(cmd, &value);
 }
 
@@ -1609,7 +1602,7 @@ static void xds110_flush(void)
 			}
 			bits = 0;
 		}
-		if (xds110.txn_scan_results[result].buffer != 0)
+		if (xds110.txn_scan_results[result].buffer)
 			bit_copy(xds110.txn_scan_results[result].buffer, 0, data_pntr,
 				bits, xds110.txn_scan_results[result].num_bits);
 		bits += xds110.txn_scan_results[result].num_bits;
@@ -1676,7 +1669,6 @@ static void xds110_execute_tlr_reset(struct jtag_command *cmd)
 
 static void xds110_execute_pathmove(struct jtag_command *cmd)
 {
-	uint32_t i;
 	uint32_t num_states;
 	uint8_t *path;
 
@@ -1685,14 +1677,14 @@ static void xds110_execute_pathmove(struct jtag_command *cmd)
 	if (num_states == 0)
 		return;
 
-	path = (uint8_t *)malloc(num_states * sizeof(uint8_t));
-	if (path == 0) {
+	path = malloc(num_states * sizeof(uint8_t));
+	if (!path) {
 		LOG_ERROR("XDS110: unable to allocate memory");
 		return;
 	}
 
 	/* Convert requested path states into XDS API states */
-	for (i = 0; i < num_states; i++)
+	for (unsigned int i = 0; i < num_states; i++)
 		path[i] = (uint8_t)xds_jtag_state[cmd->cmd.pathmove->path[i]];
 
 	if (xds110.firmware >= OCD_FIRMWARE_VERSION) {
@@ -1711,7 +1703,6 @@ static void xds110_execute_pathmove(struct jtag_command *cmd)
 
 static void xds110_queue_scan(struct jtag_command *cmd)
 {
-	int i;
 	uint32_t offset;
 	uint32_t total_fields;
 	uint32_t total_bits;
@@ -1722,7 +1713,7 @@ static void xds110_queue_scan(struct jtag_command *cmd)
 	/* Calculate the total number of bits to scan */
 	total_bits = 0;
 	total_fields = 0;
-	for (i = 0; i < cmd->cmd.scan->num_fields; i++) {
+	for (unsigned int i = 0; i < cmd->cmd.scan->num_fields; i++) {
 		total_fields++;
 		total_bits += (uint32_t)cmd->cmd.scan->fields[i].num_bits;
 	}
@@ -1763,8 +1754,8 @@ static void xds110_queue_scan(struct jtag_command *cmd)
 	buffer = &xds110.txn_requests[xds110.txn_request_size];
 	/* Clear data out buffer to default value of all zeros */
 	memset((void *)buffer, 0x00, total_bytes);
-	for (i = 0; i < cmd->cmd.scan->num_fields; i++) {
-		if (cmd->cmd.scan->fields[i].out_value != 0) {
+	for (unsigned int i = 0; i < cmd->cmd.scan->num_fields; i++) {
+		if (cmd->cmd.scan->fields[i].out_value) {
 			/* Copy over data to scan out into request buffer */
 			bit_copy(buffer, offset, cmd->cmd.scan->fields[i].out_value, 0,
 				cmd->cmd.scan->fields[i].num_bits);
@@ -1782,7 +1773,7 @@ static void xds110_queue_scan(struct jtag_command *cmd)
 
 static void xds110_queue_runtest(struct jtag_command *cmd)
 {
-	uint32_t clocks = (uint32_t)cmd->cmd.stableclocks->num_cycles;
+	uint32_t clocks = cmd->cmd.stableclocks->num_cycles;
 	uint8_t end_state = (uint8_t)xds_jtag_state[cmd->cmd.runtest->end_state];
 
 	/* Check if new request would be too large to fit */
@@ -1801,7 +1792,7 @@ static void xds110_queue_runtest(struct jtag_command *cmd)
 
 static void xds110_queue_stableclocks(struct jtag_command *cmd)
 {
-	uint32_t clocks = (uint32_t)cmd->cmd.stableclocks->num_cycles;
+	uint32_t clocks = cmd->cmd.stableclocks->num_cycles;
 
 	/* Check if new request would be too large to fit */
 	if ((xds110.txn_request_size + 1 + sizeof(clocks) + 1) > MAX_DATA_BLOCK)
@@ -1847,9 +1838,9 @@ static void xds110_execute_command(struct jtag_command *cmd)
 	}
 }
 
-static int xds110_execute_queue(void)
+static int xds110_execute_queue(struct jtag_command *cmd_queue)
 {
-	struct jtag_command *cmd = jtag_command_queue;
+	struct jtag_command *cmd = cmd_queue;
 
 	while (cmd) {
 		xds110_execute_command(cmd);
@@ -1896,7 +1887,7 @@ static int xds110_speed(int speed)
 
 		} else {
 
-			const double XDS110_TCK_PULSE_INCREMENT = 66.0;
+			const double xds110_tck_pulse_increment = 66.0;
 			freq_to_use = speed * 1000; /* Hz */
 			delay_count = 0;
 
@@ -1917,7 +1908,7 @@ static int xds110_speed(int speed)
 			double current_value = max_freq_pulse_duration;
 
 			while (current_value < freq_to_pulse_width_in_ns) {
-				current_value += XDS110_TCK_PULSE_INCREMENT;
+				current_value += xds110_tck_pulse_increment;
 				++delay_count;
 			}
 
@@ -1928,9 +1919,9 @@ static int xds110_speed(int speed)
 			if (delay_count) {
 				double diff_freq_1 = freq_to_use -
 					(one_giga / (max_freq_pulse_duration +
-					(XDS110_TCK_PULSE_INCREMENT * delay_count)));
+					(xds110_tck_pulse_increment * delay_count)));
 				double diff_freq_2 = (one_giga / (max_freq_pulse_duration +
-					(XDS110_TCK_PULSE_INCREMENT * (delay_count - 1)))) -
+					(xds110_tck_pulse_increment * (delay_count - 1)))) -
 					freq_to_use;
 
 				/* One less count value yields a better match */
@@ -2067,15 +2058,14 @@ static const struct swd_driver xds110_swd_driver = {
 	.run = xds110_swd_run_queue,
 };
 
-static const char * const xds110_transport[] = { "swd", "jtag", NULL };
-
 static struct jtag_interface xds110_interface = {
 	.execute_queue = xds110_execute_queue,
 };
 
 struct adapter_driver xds110_adapter_driver = {
 	.name = "xds110",
-	.transports = xds110_transport,
+	.transport_ids = TRANSPORT_SWD | TRANSPORT_JTAG,
+	.transport_preferred_id = TRANSPORT_SWD,
 	.commands = xds110_command_handlers,
 
 	.init = xds110_init,

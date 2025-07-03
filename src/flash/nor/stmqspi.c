@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2016 - 2019 by Andreas Bolsch                           *
@@ -616,8 +616,6 @@ COMMAND_HANDLER(stmqspi_handle_set)
 
 	LOG_DEBUG("%s", __func__);
 
-	dual = (stmqspi_info->saved_cr & BIT(SPI_DUAL_FLASH)) ? 1 : 0;
-
 	/* chip_erase_cmd, sectorsize and erase_cmd are optional */
 	if ((CMD_ARGC < 7) || (CMD_ARGC > 10))
 		return ERROR_COMMAND_SYNTAX_ERROR;
@@ -628,8 +626,9 @@ COMMAND_HANDLER(stmqspi_handle_set)
 
 	target = bank->target;
 	stmqspi_info = bank->driver_priv;
+	dual = (stmqspi_info->saved_cr & BIT(SPI_DUAL_FLASH)) ? 1 : 0;
 
-	/* invalidate all old info */
+	/* invalidate all flash device info */
 	if (stmqspi_info->probed)
 		free(bank->sectors);
 	bank->size = 0;
@@ -647,21 +646,21 @@ COMMAND_HANDLER(stmqspi_handle_set)
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[index++], stmqspi_info->dev.size_in_bytes);
 	if (log2u(stmqspi_info->dev.size_in_bytes) < 8) {
 		command_print(CMD, "stmqspi: device size must be 2^n with n >= 8");
-		return ERROR_COMMAND_SYNTAX_ERROR;
+		return ERROR_COMMAND_ARGUMENT_INVALID;
 	}
 
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[index++], stmqspi_info->dev.pagesize);
 	if (stmqspi_info->dev.pagesize > stmqspi_info->dev.size_in_bytes ||
 		(log2u(stmqspi_info->dev.pagesize) < 0)) {
 		command_print(CMD, "stmqspi: page size must be 2^n and <= device size");
-		return ERROR_COMMAND_SYNTAX_ERROR;
+		return ERROR_COMMAND_ARGUMENT_INVALID;
 	}
 
 	COMMAND_PARSE_NUMBER(u8, CMD_ARGV[index++], stmqspi_info->dev.read_cmd);
 	if ((stmqspi_info->dev.read_cmd != 0x03) &&
 		(stmqspi_info->dev.read_cmd != 0x13)) {
 		command_print(CMD, "stmqspi: only 0x03/0x13 READ cmd allowed");
-		return ERROR_COMMAND_SYNTAX_ERROR;
+		return ERROR_COMMAND_ARGUMENT_INVALID;
 	}
 
 	COMMAND_PARSE_NUMBER(u8, CMD_ARGV[index++], stmqspi_info->dev.qread_cmd);
@@ -679,7 +678,7 @@ COMMAND_HANDLER(stmqspi_handle_set)
 		(stmqspi_info->dev.qread_cmd != 0xEE)) {
 		command_print(CMD, "stmqspi: only 0x0B/0x0C/0x3B/0x3C/"
 			"0x6B/0x6C/0xBB/0xBC/0xEB/0xEC/0xEE QREAD allowed");
-		return ERROR_COMMAND_SYNTAX_ERROR;
+		return ERROR_COMMAND_ARGUMENT_INVALID;
 	}
 
 	COMMAND_PARSE_NUMBER(u8, CMD_ARGV[index++], stmqspi_info->dev.pprog_cmd);
@@ -687,7 +686,7 @@ COMMAND_HANDLER(stmqspi_handle_set)
 		(stmqspi_info->dev.pprog_cmd != 0x12) &&
 		(stmqspi_info->dev.pprog_cmd != 0x32)) {
 		command_print(CMD, "stmqspi: only 0x02/0x12/0x32 PPRG cmd allowed");
-		return ERROR_COMMAND_SYNTAX_ERROR;
+		return ERROR_COMMAND_ARGUMENT_INVALID;
 	}
 
 	if (index < CMD_ARGC)
@@ -701,7 +700,7 @@ COMMAND_HANDLER(stmqspi_handle_set)
 			(stmqspi_info->dev.sectorsize < stmqspi_info->dev.pagesize) ||
 			(log2u(stmqspi_info->dev.sectorsize) < 0)) {
 			command_print(CMD, "stmqspi: sector size must be 2^n and <= device size");
-			return ERROR_COMMAND_SYNTAX_ERROR;
+			return ERROR_COMMAND_ARGUMENT_INVALID;
 		}
 
 		if (index < CMD_ARGC)
@@ -721,10 +720,8 @@ COMMAND_HANDLER(stmqspi_handle_set)
 
 	uint32_t dcr;
 	retval = target_read_u32(target, io_base + SPI_DCR, &dcr);
-
 	if (retval != ERROR_OK)
 		return retval;
-
 	fsize = (dcr >> SPI_FSIZE_POS) & (BIT(SPI_FSIZE_LEN) - 1);
 
 	LOG_DEBUG("FSIZE = 0x%04x", fsize);
@@ -754,13 +751,13 @@ COMMAND_HANDLER(stmqspi_handle_set)
 	bank->sectors = sectors;
 	stmqspi_info->dev.name = stmqspi_info->devname;
 	if (stmqspi_info->dev.size_in_bytes / 4096)
-		LOG_INFO("flash \'%s\' id = unknown\nchip size = %" PRIu32 "kbytes,"
-			" bank size = %" PRIu32 "kbytes", stmqspi_info->dev.name,
+		LOG_INFO("flash \'%s\' id = unknown\nchip size = %" PRIu32 " KiB,"
+			" bank size = %" PRIu32 " KiB", stmqspi_info->dev.name,
 			stmqspi_info->dev.size_in_bytes / 1024,
 			(stmqspi_info->dev.size_in_bytes / 1024) << dual);
 	else
-		LOG_INFO("flash \'%s\' id = unknown\nchip size = %" PRIu32 "bytes,"
-			" bank size = %" PRIu32 "bytes", stmqspi_info->dev.name,
+		LOG_INFO("flash \'%s\' id = unknown\nchip size = %" PRIu32 " B,"
+			" bank size = %" PRIu32 " B", stmqspi_info->dev.name,
 			stmqspi_info->dev.size_in_bytes,
 			stmqspi_info->dev.size_in_bytes << dual);
 
@@ -789,7 +786,7 @@ COMMAND_HANDLER(stmqspi_handle_cmd)
 	num_write = CMD_ARGC - 2;
 	if (num_write > max) {
 		LOG_ERROR("at most %d bytes may be sent", max);
-		return ERROR_COMMAND_SYNTAX_ERROR;
+		return ERROR_COMMAND_ARGUMENT_INVALID;
 	}
 
 	retval = CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
@@ -814,7 +811,7 @@ COMMAND_HANDLER(stmqspi_handle_cmd)
 		if (stmqspi_info->saved_cr & BIT(SPI_DUAL_FLASH)) {
 			if ((num_write & 1) == 0) {
 				LOG_ERROR("number of data bytes to write must be even in dual mode");
-				return ERROR_COMMAND_SYNTAX_ERROR;
+				return ERROR_COMMAND_ARGUMENT_INVALID;
 			}
 		}
 	} else {
@@ -822,12 +819,12 @@ COMMAND_HANDLER(stmqspi_handle_cmd)
 		if (stmqspi_info->saved_cr & BIT(SPI_DUAL_FLASH)) {
 			if ((num_read & 1) != 0) {
 				LOG_ERROR("number of bytes to read must be even in dual mode");
-				return ERROR_COMMAND_SYNTAX_ERROR;
+				return ERROR_COMMAND_ARGUMENT_INVALID;
 			}
 		}
 		if ((num_write < 1) || (num_write > 5)) {
 			LOG_ERROR("one cmd and up to four addr bytes must be send when reading");
-			return ERROR_COMMAND_SYNTAX_ERROR;
+			return ERROR_COMMAND_ARGUMENT_INVALID;
 		}
 	}
 
@@ -1799,7 +1796,6 @@ static int find_sfdp_dummy(struct flash_bank *bank, int len)
 		}
 	}
 
-	retval = ERROR_FAIL;
 	LOG_DEBUG("no start of SFDP header even after %u dummy bytes", count);
 
 err:
@@ -1811,7 +1807,7 @@ err:
 
 /* Read SFDP parameter block */
 static int read_sfdp_block(struct flash_bank *bank, uint32_t addr,
-	uint32_t words, uint32_t *buffer)
+	unsigned int words, uint32_t *buffer)
 {
 	struct target *target = bank->target;
 	struct stmqspi_flash_bank *stmqspi_info = bank->driver_priv;
@@ -1852,7 +1848,7 @@ static int read_sfdp_block(struct flash_bank *bank, uint32_t addr,
 		}
 	}
 
-	LOG_DEBUG("%s: addr=0x%08" PRIx32 " words=0x%08" PRIx32 " dummy=%u",
+	LOG_DEBUG("%s: addr=0x%08" PRIx32 " words=0x%08x dummy=%u",
 		__func__, addr, words, *dummy);
 
 	/* Abort any previous operation */
@@ -2081,16 +2077,17 @@ static int stmqspi_probe(struct flash_bank *bank)
 	bool octal_dtr;
 	int retval;
 
-	if (stmqspi_info->probed) {
-		bank->size = 0;
-		bank->num_sectors = 0;
+	/* invalidate all flash device info */
+	if (stmqspi_info->probed)
 		free(bank->sectors);
-		bank->sectors = NULL;
-		memset(&stmqspi_info->dev, 0, sizeof(stmqspi_info->dev));
-		stmqspi_info->sfdp_dummy1 = 0;
-		stmqspi_info->sfdp_dummy2 = 0;
-		stmqspi_info->probed = false;
-	}
+	bank->size = 0;
+	bank->num_sectors = 0;
+	bank->sectors = NULL;
+	stmqspi_info->sfdp_dummy1 = 0;
+	stmqspi_info->sfdp_dummy2 = 0;
+	stmqspi_info->probed = false;
+	memset(&stmqspi_info->dev, 0, sizeof(stmqspi_info->dev));
+	stmqspi_info->dev.name = "unknown";
 
 	/* Abort any previous operation */
 	retval = stmqspi_abort(bank);
@@ -2105,8 +2102,8 @@ static int stmqspi_probe(struct flash_bank *bank)
 	/* check whether QSPI_ABR is writeable and readback returns the value written */
 	retval = target_write_u32(target, io_base + QSPI_ABR, magic);
 	if (retval == ERROR_OK) {
-		retval = target_read_u32(target, io_base + QSPI_ABR, &data);
-		retval = target_write_u32(target, io_base + QSPI_ABR, 0);
+		(void)target_read_u32(target, io_base + QSPI_ABR, &data);
+		(void)target_write_u32(target, io_base + QSPI_ABR, 0);
 	}
 
 	if (data == magic) {
@@ -2206,10 +2203,10 @@ static int stmqspi_probe(struct flash_bank *bank)
 			memcpy(&stmqspi_info->dev, p, sizeof(stmqspi_info->dev));
 			if (p->size_in_bytes / 4096)
 				LOG_INFO("flash1 \'%s\' id = 0x%06" PRIx32 " size = %" PRIu32
-					"kbytes", p->name, id1, p->size_in_bytes / 1024);
+					" KiB", p->name, id1, p->size_in_bytes / 1024);
 			else
 				LOG_INFO("flash1 \'%s\' id = 0x%06" PRIx32 " size = %" PRIu32
-					"bytes", p->name, id1, p->size_in_bytes);
+					" B", p->name, id1, p->size_in_bytes);
 			break;
 		}
 	}
@@ -2228,7 +2225,7 @@ static int stmqspi_probe(struct flash_bank *bank)
 
 		if (retval == ERROR_OK) {
 			LOG_INFO("flash1 \'%s\' id = 0x%06" PRIx32 " size = %" PRIu32
-				"kbytes", temp.name, id1, temp.size_in_bytes / 1024);
+				" KiB", temp.name, id1, temp.size_in_bytes / 1024);
 			/* save info and retrieved *good* id as spi_sfdp clears all info */
 			memcpy(&stmqspi_info->dev, &temp, sizeof(stmqspi_info->dev));
 			stmqspi_info->dev.device_id = id1;
@@ -2246,10 +2243,10 @@ static int stmqspi_probe(struct flash_bank *bank)
 		if (p->device_id == id2) {
 			if (p->size_in_bytes / 4096)
 				LOG_INFO("flash2 \'%s\' id = 0x%06" PRIx32 " size = %" PRIu32
-					"kbytes", p->name, id2, p->size_in_bytes / 1024);
+					" KiB", p->name, id2, p->size_in_bytes / 1024);
 			else
 				LOG_INFO("flash2 \'%s\' id = 0x%06" PRIx32 " size = %" PRIu32
-					"bytes", p->name, id2, p->size_in_bytes);
+					" B", p->name, id2, p->size_in_bytes);
 
 			if (!id1)
 				memcpy(&stmqspi_info->dev, p, sizeof(stmqspi_info->dev));
@@ -2286,7 +2283,7 @@ static int stmqspi_probe(struct flash_bank *bank)
 
 		if (retval == ERROR_OK)
 			LOG_INFO("flash2 \'%s\' id = 0x%06" PRIx32 " size = %" PRIu32
-				"kbytes", temp.name, id2, temp.size_in_bytes / 1024);
+				" KiB", temp.name, id2, temp.size_in_bytes / 1024);
 		else {
 			/* even not identified by SFDP, then give up */
 			LOG_WARNING("Unknown flash2 device id = 0x%06" PRIx32
@@ -2392,22 +2389,22 @@ static int get_stmqspi_info(struct flash_bank *bank, struct command_invocation *
 	}
 
 	command_print_sameline(cmd, "flash%s%s \'%s\', device id = 0x%06" PRIx32
-			", flash size = %" PRIu32 "%sbytes\n(page size = %" PRIu32
+			", flash size = %" PRIu32 "%s B\n(page size = %" PRIu32
 			", read = 0x%02" PRIx8 ", qread = 0x%02" PRIx8
 			", pprog = 0x%02" PRIx8 ", mass_erase = 0x%02" PRIx8
-			", sector size = %" PRIu32 "%sbytes, sector_erase = 0x%02" PRIx8 ")",
+			", sector size = %" PRIu32 " %sB, sector_erase = 0x%02" PRIx8 ")",
 			((stmqspi_info->saved_cr & (BIT(SPI_DUAL_FLASH) |
 			BIT(SPI_FSEL_FLASH))) != BIT(SPI_FSEL_FLASH)) ? "1" : "",
 			((stmqspi_info->saved_cr & (BIT(SPI_DUAL_FLASH) |
 			BIT(SPI_FSEL_FLASH))) != 0) ? "2" : "",
 			stmqspi_info->dev.name, stmqspi_info->dev.device_id,
 			bank->size / 4096 ? bank->size / 1024 : bank->size,
-			bank->size / 4096 ? "k" : "", stmqspi_info->dev.pagesize,
+			bank->size / 4096 ? "Ki" : "", stmqspi_info->dev.pagesize,
 			stmqspi_info->dev.read_cmd, stmqspi_info->dev.qread_cmd,
 			stmqspi_info->dev.pprog_cmd, stmqspi_info->dev.chip_erase_cmd,
 			stmqspi_info->dev.sectorsize / 4096 ?
 				stmqspi_info->dev.sectorsize / 1024 : stmqspi_info->dev.sectorsize,
-			stmqspi_info->dev.sectorsize / 4096 ? "k" : "",
+			stmqspi_info->dev.sectorsize / 4096 ? "Ki" : "",
 			stmqspi_info->dev.erase_cmd);
 
 	return ERROR_OK;
@@ -2450,7 +2447,7 @@ static const struct command_registration stmqspi_command_handlers[] = {
 	COMMAND_REGISTRATION_DONE
 };
 
-struct flash_driver stmqspi_flash = {
+const struct flash_driver stmqspi_flash = {
 	.name = "stmqspi",
 	.commands = stmqspi_command_handlers,
 	.flash_bank_command = stmqspi_flash_bank_command,

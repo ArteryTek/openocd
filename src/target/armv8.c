@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2015 by David Ung                                       *
@@ -19,6 +19,7 @@
 #include "register.h"
 #include <helper/binarybuffer.h>
 #include <helper/command.h>
+#include <helper/nvp.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -35,7 +36,7 @@ static const char * const armv8_state_strings[] = {
 
 static const struct {
 	const char *name;
-	unsigned psr;
+	unsigned int psr;
 } armv8_mode_data[] = {
 	{
 		.name = "USR",
@@ -104,672 +105,14 @@ static const struct {
 };
 
 /** Map PSR mode bits to the name of an ARM processor operating mode. */
-const char *armv8_mode_name(unsigned psr_mode)
+const char *armv8_mode_name(unsigned int psr_mode)
 {
-	for (unsigned i = 0; i < ARRAY_SIZE(armv8_mode_data); i++) {
+	for (unsigned int i = 0; i < ARRAY_SIZE(armv8_mode_data); i++) {
 		if (armv8_mode_data[i].psr == psr_mode)
 			return armv8_mode_data[i].name;
 	}
 	LOG_ERROR("unrecognized psr mode: %#02x", psr_mode);
 	return "UNRECOGNIZED";
-}
-
-static int armv8_read_reg(struct armv8_common *armv8, int regnum, uint64_t *regval)
-{
-	struct arm_dpm *dpm = &armv8->dpm;
-	int retval;
-	uint32_t value;
-	uint64_t value_64;
-
-	switch (regnum) {
-	case 0 ... 30:
-		retval = dpm->instr_read_data_dcc_64(dpm,
-				ARMV8_MSR_GP(SYSTEM_DBG_DBGDTR_EL0, regnum), &value_64);
-		break;
-	case ARMV8_SP:
-		retval = dpm->instr_read_data_r0_64(dpm,
-				ARMV8_MOVFSP_64(0), &value_64);
-		break;
-	case ARMV8_PC:
-		retval = dpm->instr_read_data_r0_64(dpm,
-				ARMV8_MRS_DLR(0), &value_64);
-		break;
-	case ARMV8_xPSR:
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS_DSPSR(0), &value);
-		value_64 = value;
-		break;
-	case ARMV8_FPSR:
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS_FPSR(0), &value);
-		value_64 = value;
-		break;
-	case ARMV8_FPCR:
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS_FPCR(0), &value);
-		value_64 = value;
-		break;
-	case ARMV8_ELR_EL1:
-		retval = dpm->instr_read_data_r0_64(dpm,
-				ARMV8_MRS(SYSTEM_ELR_EL1, 0), &value_64);
-		break;
-	case ARMV8_ELR_EL2:
-		retval = dpm->instr_read_data_r0_64(dpm,
-				ARMV8_MRS(SYSTEM_ELR_EL2, 0), &value_64);
-		break;
-	case ARMV8_ELR_EL3:
-		retval = dpm->instr_read_data_r0_64(dpm,
-				ARMV8_MRS(SYSTEM_ELR_EL3, 0), &value_64);
-		break;
-	case ARMV8_ESR_EL1:
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS(SYSTEM_ESR_EL1, 0), &value);
-		value_64 = value;
-		break;
-	case ARMV8_ESR_EL2:
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS(SYSTEM_ESR_EL2, 0), &value);
-		value_64 = value;
-		break;
-	case ARMV8_ESR_EL3:
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS(SYSTEM_ESR_EL3, 0), &value);
-		value_64 = value;
-		break;
-	case ARMV8_SPSR_EL1:
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS(SYSTEM_SPSR_EL1, 0), &value);
-		value_64 = value;
-		break;
-	case ARMV8_SPSR_EL2:
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS(SYSTEM_SPSR_EL2, 0), &value);
-		value_64 = value;
-		break;
-	case ARMV8_SPSR_EL3:
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS(SYSTEM_SPSR_EL3, 0), &value);
-		value_64 = value;
-		break;
-	default:
-		retval = ERROR_FAIL;
-		break;
-	}
-
-	if (retval == ERROR_OK && regval)
-		*regval = value_64;
-	else
-		retval = ERROR_FAIL;
-
-	return retval;
-}
-
-static int armv8_read_reg_simdfp_aarch64(struct armv8_common *armv8, int regnum, uint64_t *lvalue, uint64_t *hvalue)
-{
-	int retval = ERROR_FAIL;
-	struct arm_dpm *dpm = &armv8->dpm;
-
-	switch (regnum) {
-	case ARMV8_V0 ... ARMV8_V31:
-		retval = dpm->instr_read_data_r0_64(dpm,
-				ARMV8_MOV_GPR_VFP(0, (regnum - ARMV8_V0), 1), hvalue);
-		if (retval != ERROR_OK)
-			return retval;
-		retval = dpm->instr_read_data_r0_64(dpm,
-				ARMV8_MOV_GPR_VFP(0, (regnum - ARMV8_V0), 0), lvalue);
-		break;
-
-	default:
-		retval = ERROR_FAIL;
-		break;
-	}
-
-	return retval;
-}
-
-static int armv8_write_reg(struct armv8_common *armv8, int regnum, uint64_t value_64)
-{
-	struct arm_dpm *dpm = &armv8->dpm;
-	int retval;
-	uint32_t value;
-
-	switch (regnum) {
-	case 0 ... 30:
-		retval = dpm->instr_write_data_dcc_64(dpm,
-			ARMV8_MRS(SYSTEM_DBG_DBGDTR_EL0, regnum),
-			value_64);
-		break;
-	case ARMV8_SP:
-		retval = dpm->instr_write_data_r0_64(dpm,
-			ARMV8_MOVTSP_64(0),
-			value_64);
-		break;
-	case ARMV8_PC:
-		retval = dpm->instr_write_data_r0_64(dpm,
-			ARMV8_MSR_DLR(0),
-			value_64);
-		break;
-	case ARMV8_xPSR:
-		value = value_64;
-		retval = dpm->instr_write_data_r0(dpm,
-			ARMV8_MSR_DSPSR(0),
-			value);
-		break;
-	case ARMV8_FPSR:
-		value = value_64;
-		retval = dpm->instr_write_data_r0(dpm,
-			ARMV8_MSR_FPSR(0),
-			value);
-		break;
-	case ARMV8_FPCR:
-		value = value_64;
-		retval = dpm->instr_write_data_r0(dpm,
-			ARMV8_MSR_FPCR(0),
-			value);
-		break;
-	/* registers clobbered by taking exception in debug state */
-	case ARMV8_ELR_EL1:
-		retval = dpm->instr_write_data_r0_64(dpm,
-				ARMV8_MSR_GP(SYSTEM_ELR_EL1, 0), value_64);
-		break;
-	case ARMV8_ELR_EL2:
-		retval = dpm->instr_write_data_r0_64(dpm,
-				ARMV8_MSR_GP(SYSTEM_ELR_EL2, 0), value_64);
-		break;
-	case ARMV8_ELR_EL3:
-		retval = dpm->instr_write_data_r0_64(dpm,
-				ARMV8_MSR_GP(SYSTEM_ELR_EL3, 0), value_64);
-		break;
-	case ARMV8_ESR_EL1:
-		value = value_64;
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MSR_GP(SYSTEM_ESR_EL1, 0), value);
-		break;
-	case ARMV8_ESR_EL2:
-		value = value_64;
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MSR_GP(SYSTEM_ESR_EL2, 0), value);
-		break;
-	case ARMV8_ESR_EL3:
-		value = value_64;
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MSR_GP(SYSTEM_ESR_EL3, 0), value);
-		break;
-	case ARMV8_SPSR_EL1:
-		value = value_64;
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MSR_GP(SYSTEM_SPSR_EL1, 0), value);
-		break;
-	case ARMV8_SPSR_EL2:
-		value = value_64;
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MSR_GP(SYSTEM_SPSR_EL2, 0), value);
-		break;
-	case ARMV8_SPSR_EL3:
-		value = value_64;
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MSR_GP(SYSTEM_SPSR_EL3, 0), value);
-		break;
-	default:
-		retval = ERROR_FAIL;
-		break;
-	}
-
-	return retval;
-}
-
-static int armv8_write_reg_simdfp_aarch64(struct armv8_common *armv8, int regnum, uint64_t lvalue, uint64_t hvalue)
-{
-	int retval = ERROR_FAIL;
-	struct arm_dpm *dpm = &armv8->dpm;
-
-	switch (regnum) {
-	case ARMV8_V0 ... ARMV8_V31:
-		retval = dpm->instr_write_data_r0_64(dpm,
-				ARMV8_MOV_VFP_GPR((regnum - ARMV8_V0), 0, 1), hvalue);
-		if (retval != ERROR_OK)
-			return retval;
-		retval = dpm->instr_write_data_r0_64(dpm,
-				ARMV8_MOV_VFP_GPR((regnum - ARMV8_V0), 0, 0), lvalue);
-		break;
-
-	default:
-		retval = ERROR_FAIL;
-		break;
-	}
-
-	return retval;
-}
-
-static int armv8_read_reg32(struct armv8_common *armv8, int regnum, uint64_t *regval)
-{
-	struct arm_dpm *dpm = &armv8->dpm;
-	uint32_t value = 0;
-	int retval;
-
-	switch (regnum) {
-	case ARMV8_R0 ... ARMV8_R14:
-		/* return via DCC:  "MCR p14, 0, Rnum, c0, c5, 0" */
-		retval = dpm->instr_read_data_dcc(dpm,
-			ARMV4_5_MCR(14, 0, regnum, 0, 5, 0),
-			&value);
-		break;
-	case ARMV8_SP:
-		retval = dpm->instr_read_data_dcc(dpm,
-			ARMV4_5_MCR(14, 0, 13, 0, 5, 0),
-			&value);
-		break;
-	case ARMV8_PC:
-		retval = dpm->instr_read_data_r0(dpm,
-			ARMV8_MRC_DLR(0),
-			&value);
-		break;
-	case ARMV8_xPSR:
-		retval = dpm->instr_read_data_r0(dpm,
-			ARMV8_MRC_DSPSR(0),
-			&value);
-		break;
-	case ARMV8_ELR_EL1: /* mapped to LR_svc */
-		retval = dpm->instr_read_data_dcc(dpm,
-				ARMV4_5_MCR(14, 0, 14, 0, 5, 0),
-				&value);
-		break;
-	case ARMV8_ELR_EL2: /* mapped to ELR_hyp */
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS_T1(0, 14, 0, 1),
-				&value);
-		break;
-	case ARMV8_ELR_EL3: /* mapped to LR_mon */
-		retval = dpm->instr_read_data_dcc(dpm,
-				ARMV4_5_MCR(14, 0, 14, 0, 5, 0),
-				&value);
-		break;
-	case ARMV8_ESR_EL1: /* mapped to DFSR */
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV4_5_MRC(15, 0, 0, 5, 0, 0),
-				&value);
-		break;
-	case ARMV8_ESR_EL2: /* mapped to HSR */
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV4_5_MRC(15, 4, 0, 5, 2, 0),
-				&value);
-		break;
-	case ARMV8_ESR_EL3: /* FIXME: no equivalent in aarch32? */
-		retval = ERROR_FAIL;
-		break;
-	case ARMV8_SPSR_EL1: /* mapped to SPSR_svc */
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS_xPSR_T1(1, 0),
-				&value);
-		break;
-	case ARMV8_SPSR_EL2: /* mapped to SPSR_hyp */
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS_xPSR_T1(1, 0),
-				&value);
-		break;
-	case ARMV8_SPSR_EL3: /* mapped to SPSR_mon */
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV8_MRS_xPSR_T1(1, 0),
-				&value);
-		break;
-	case ARMV8_FPSR:
-		/* "VMRS r0, FPSCR"; then return via DCC */
-		retval = dpm->instr_read_data_r0(dpm,
-			ARMV4_5_VMRS(0), &value);
-		break;
-	default:
-		retval = ERROR_FAIL;
-		break;
-	}
-
-	if (retval == ERROR_OK && regval)
-		*regval = value;
-
-	return retval;
-}
-
-static int armv8_read_reg_simdfp_aarch32(struct armv8_common *armv8, int regnum, uint64_t *lvalue, uint64_t *hvalue)
-{
-	int retval = ERROR_FAIL;
-	struct arm_dpm *dpm = &armv8->dpm;
-	struct reg *reg_r1 = dpm->arm->core_cache->reg_list + ARMV8_R1;
-	uint32_t value_r0 = 0, value_r1 = 0;
-	unsigned num = (regnum - ARMV8_V0) << 1;
-
-	switch (regnum) {
-	case ARMV8_V0 ... ARMV8_V15:
-		/* we are going to write R1, mark it dirty */
-		reg_r1->dirty = true;
-		/* move from double word register to r0:r1: "vmov r0, r1, vm"
-		 * then read r0 via dcc
-		 */
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV4_5_VMOV(1, 1, 0, (num >> 4), (num & 0xf)),
-				&value_r0);
-		if (retval != ERROR_OK)
-			return retval;
-		/* read r1 via dcc */
-		retval = dpm->instr_read_data_dcc(dpm,
-				ARMV4_5_MCR(14, 0, 1, 0, 5, 0),
-				&value_r1);
-		if (retval != ERROR_OK)
-			return retval;
-		*lvalue = value_r1;
-		*lvalue = ((*lvalue) << 32) | value_r0;
-
-		num++;
-		/* repeat above steps for high 64 bits of V register */
-		retval = dpm->instr_read_data_r0(dpm,
-				ARMV4_5_VMOV(1, 1, 0, (num >> 4), (num & 0xf)),
-				&value_r0);
-		if (retval != ERROR_OK)
-			return retval;
-		retval = dpm->instr_read_data_dcc(dpm,
-				ARMV4_5_MCR(14, 0, 1, 0, 5, 0),
-				&value_r1);
-		if (retval != ERROR_OK)
-			return retval;
-		*hvalue = value_r1;
-		*hvalue = ((*hvalue) << 32) | value_r0;
-		break;
-	default:
-		retval = ERROR_FAIL;
-		break;
-	}
-
-	return retval;
-}
-
-static int armv8_write_reg32(struct armv8_common *armv8, int regnum, uint64_t value)
-{
-	struct arm_dpm *dpm = &armv8->dpm;
-	int retval;
-
-	switch (regnum) {
-	case ARMV8_R0 ... ARMV8_R14:
-		/* load register from DCC:  "MRC p14, 0, Rnum, c0, c5, 0" */
-		retval = dpm->instr_write_data_dcc(dpm,
-				ARMV4_5_MRC(14, 0, regnum, 0, 5, 0), value);
-		break;
-	case ARMV8_SP:
-		retval = dpm->instr_write_data_dcc(dpm,
-				ARMV4_5_MRC(14, 0, 13, 0, 5, 0), value);
-			break;
-	case ARMV8_PC:/* PC
-		 * read r0 from DCC; then "MOV pc, r0" */
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MCR_DLR(0), value);
-		break;
-	case ARMV8_xPSR: /* CPSR */
-		/* read r0 from DCC, then "MCR r0, DSPSR" */
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MCR_DSPSR(0), value);
-		break;
-	case ARMV8_ELR_EL1: /* mapped to LR_svc */
-		retval = dpm->instr_write_data_dcc(dpm,
-				ARMV4_5_MRC(14, 0, 14, 0, 5, 0),
-				value);
-		break;
-	case ARMV8_ELR_EL2: /* mapped to ELR_hyp */
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MSR_GP_T1(0, 14, 0, 1),
-				value);
-		break;
-	case ARMV8_ELR_EL3: /* mapped to LR_mon */
-		retval = dpm->instr_write_data_dcc(dpm,
-				ARMV4_5_MRC(14, 0, 14, 0, 5, 0),
-				value);
-		break;
-	case ARMV8_ESR_EL1: /* mapped to DFSR */
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV4_5_MCR(15, 0, 0, 5, 0, 0),
-				value);
-		break;
-	case ARMV8_ESR_EL2: /* mapped to HSR */
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV4_5_MCR(15, 4, 0, 5, 2, 0),
-				value);
-		break;
-	case ARMV8_ESR_EL3: /* FIXME: no equivalent in aarch32? */
-		retval = ERROR_FAIL;
-		break;
-	case ARMV8_SPSR_EL1: /* mapped to SPSR_svc */
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MSR_GP_xPSR_T1(1, 0, 15),
-				value);
-		break;
-	case ARMV8_SPSR_EL2: /* mapped to SPSR_hyp */
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MSR_GP_xPSR_T1(1, 0, 15),
-				value);
-		break;
-	case ARMV8_SPSR_EL3: /* mapped to SPSR_mon */
-		retval = dpm->instr_write_data_r0(dpm,
-				ARMV8_MSR_GP_xPSR_T1(1, 0, 15),
-				value);
-		break;
-	case ARMV8_FPSR:
-		/* move to r0 from DCC, then "VMSR FPSCR, r0" */
-		retval = dpm->instr_write_data_r0(dpm,
-			ARMV4_5_VMSR(0), value);
-		break;
-	default:
-		retval = ERROR_FAIL;
-		break;
-	}
-
-	return retval;
-
-}
-
-static int armv8_write_reg_simdfp_aarch32(struct armv8_common *armv8, int regnum, uint64_t lvalue, uint64_t hvalue)
-{
-	int retval = ERROR_FAIL;
-	struct arm_dpm *dpm = &armv8->dpm;
-	struct reg *reg_r1 = dpm->arm->core_cache->reg_list + ARMV8_R1;
-	uint32_t value_r0 = 0, value_r1 = 0;
-	unsigned num = (regnum - ARMV8_V0) << 1;
-
-	switch (regnum) {
-	case ARMV8_V0 ... ARMV8_V15:
-		/* we are going to write R1, mark it dirty */
-		reg_r1->dirty = true;
-		value_r1 = lvalue >> 32;
-		value_r0 = lvalue & 0xFFFFFFFF;
-		/* write value_r1 to r1 via dcc */
-		retval = dpm->instr_write_data_dcc(dpm,
-			ARMV4_5_MRC(14, 0, 1, 0, 5, 0),
-			value_r1);
-		if (retval != ERROR_OK)
-			return retval;
-		/* write value_r0 to r0 via dcc then,
-		 * move to double word register from r0:r1: "vmov vm, r0, r1"
-		 */
-		retval = dpm->instr_write_data_r0(dpm,
-			ARMV4_5_VMOV(0, 1, 0, (num >> 4), (num & 0xf)),
-			value_r0);
-		if (retval != ERROR_OK)
-			return retval;
-
-		num++;
-		/* repeat above steps for high 64 bits of V register */
-		value_r1 = hvalue >> 32;
-		value_r0 = hvalue & 0xFFFFFFFF;
-		retval = dpm->instr_write_data_dcc(dpm,
-			ARMV4_5_MRC(14, 0, 1, 0, 5, 0),
-			value_r1);
-		if (retval != ERROR_OK)
-			return retval;
-		retval = dpm->instr_write_data_r0(dpm,
-			ARMV4_5_VMOV(0, 1, 0, (num >> 4), (num & 0xf)),
-			value_r0);
-		break;
-	default:
-		retval = ERROR_FAIL;
-		break;
-	}
-
-	return retval;
-}
-
-void armv8_select_reg_access(struct armv8_common *armv8, bool is_aarch64)
-{
-	if (is_aarch64) {
-		armv8->read_reg_u64 = armv8_read_reg;
-		armv8->write_reg_u64 = armv8_write_reg;
-		armv8->read_reg_u128 = armv8_read_reg_simdfp_aarch64;
-		armv8->write_reg_u128 = armv8_write_reg_simdfp_aarch64;
-
-	} else {
-		armv8->read_reg_u64 = armv8_read_reg32;
-		armv8->write_reg_u64 = armv8_write_reg32;
-		armv8->read_reg_u128 = armv8_read_reg_simdfp_aarch32;
-		armv8->write_reg_u128 = armv8_write_reg_simdfp_aarch32;
-	}
-}
-
-/*  retrieve core id cluster id  */
-int armv8_read_mpidr(struct armv8_common *armv8)
-{
-	int retval = ERROR_FAIL;
-	struct arm *arm = &armv8->arm;
-	struct arm_dpm *dpm = armv8->arm.dpm;
-	uint32_t mpidr;
-
-	retval = dpm->prepare(dpm);
-	if (retval != ERROR_OK)
-		goto done;
-
-	/* check if we're in an unprivileged mode */
-	if (armv8_curel_from_core_mode(arm->core_mode) < SYSTEM_CUREL_EL1) {
-		retval = armv8_dpm_modeswitch(dpm, ARMV8_64_EL1H);
-		if (retval != ERROR_OK)
-			return retval;
-	}
-
-	retval = dpm->instr_read_data_r0(dpm, armv8_opcode(armv8, READ_REG_MPIDR), &mpidr);
-	if (retval != ERROR_OK)
-		goto done;
-	if (mpidr & 1U<<31) {
-		armv8->multi_processor_system = (mpidr >> 30) & 1;
-		armv8->cluster_id = (mpidr >> 8) & 0xf;
-		armv8->cpu_id = mpidr & 0x3;
-		LOG_INFO("%s cluster %x core %x %s", target_name(armv8->arm.target),
-			armv8->cluster_id,
-			armv8->cpu_id,
-			armv8->multi_processor_system == 0 ? "multi core" : "single core");
-	} else
-		LOG_ERROR("mpidr not in multiprocessor format");
-
-done:
-	armv8_dpm_modeswitch(dpm, ARM_MODE_ANY);
-	dpm->finish(dpm);
-	return retval;
-}
-
-/**
- * Configures host-side ARM records to reflect the specified CPSR.
- * Later, code can use arm_reg_current() to map register numbers
- * according to how they are exposed by this mode.
- */
-void armv8_set_cpsr(struct arm *arm, uint32_t cpsr)
-{
-	uint32_t mode = cpsr & 0x1F;
-
-	/* NOTE:  this may be called very early, before the register
-	 * cache is set up.  We can't defend against many errors, in
-	 * particular against CPSRs that aren't valid *here* ...
-	 */
-	if (arm->cpsr) {
-		buf_set_u32(arm->cpsr->value, 0, 32, cpsr);
-		arm->cpsr->valid = true;
-		arm->cpsr->dirty = false;
-	}
-
-	/* Older ARMs won't have the J bit */
-	enum arm_state state = 0xFF;
-
-	if ((cpsr & 0x10) != 0) {
-		/* Aarch32 state */
-		if (cpsr & (1 << 5)) {	/* T */
-			if (cpsr & (1 << 24)) { /* J */
-				LOG_WARNING("ThumbEE -- incomplete support");
-				state = ARM_STATE_THUMB_EE;
-			} else
-				state = ARM_STATE_THUMB;
-		} else {
-			if (cpsr & (1 << 24)) { /* J */
-				LOG_ERROR("Jazelle state handling is BROKEN!");
-				state = ARM_STATE_JAZELLE;
-			} else
-				state = ARM_STATE_ARM;
-		}
-	} else {
-		/* Aarch64 state */
-		state = ARM_STATE_AARCH64;
-	}
-
-	arm->core_state = state;
-	arm->core_mode = mode;
-
-	LOG_DEBUG("set CPSR %#8.8x: %s mode, %s state", (unsigned) cpsr,
-		armv8_mode_name(arm->core_mode),
-		armv8_state_strings[arm->core_state]);
-}
-
-static void armv8_show_fault_registers32(struct armv8_common *armv8)
-{
-	uint32_t dfsr, ifsr, dfar, ifar;
-	struct arm_dpm *dpm = armv8->arm.dpm;
-	int retval;
-
-	retval = dpm->prepare(dpm);
-	if (retval != ERROR_OK)
-		return;
-
-	/* ARMV4_5_MRC(cpnum, op1, r0, crn, crm, op2) */
-
-	/* c5/c0 - {data, instruction} fault status registers */
-	retval = dpm->instr_read_data_r0(dpm,
-			ARMV4_5_MRC(15, 0, 0, 5, 0, 0),
-			&dfsr);
-	if (retval != ERROR_OK)
-		goto done;
-
-	retval = dpm->instr_read_data_r0(dpm,
-			ARMV4_5_MRC(15, 0, 0, 5, 0, 1),
-			&ifsr);
-	if (retval != ERROR_OK)
-		goto done;
-
-	/* c6/c0 - {data, instruction} fault address registers */
-	retval = dpm->instr_read_data_r0(dpm,
-			ARMV4_5_MRC(15, 0, 0, 6, 0, 0),
-			&dfar);
-	if (retval != ERROR_OK)
-		goto done;
-
-	retval = dpm->instr_read_data_r0(dpm,
-			ARMV4_5_MRC(15, 0, 0, 6, 0, 2),
-			&ifar);
-	if (retval != ERROR_OK)
-		goto done;
-
-	LOG_USER("Data fault registers        DFSR: %8.8" PRIx32
-		", DFAR: %8.8" PRIx32, dfsr, dfar);
-	LOG_USER("Instruction fault registers IFSR: %8.8" PRIx32
-		", IFAR: %8.8" PRIx32, ifsr, ifar);
-
-done:
-	/* (void) */ dpm->finish(dpm);
-}
-
-static __attribute__((unused)) void armv8_show_fault_registers(struct target *target)
-{
-	struct armv8_common *armv8 = target_to_armv8(target);
-
-	if (armv8->arm.core_state != ARM_STATE_AARCH64)
-		armv8_show_fault_registers32(armv8);
 }
 
 static uint8_t armv8_pa_size(uint32_t ps)
@@ -840,7 +183,7 @@ done:
 	return retval;
 }
 
-static __attribute__((unused)) int armv8_read_ttbcr(struct target *target)
+static int armv8_read_ttbcr(struct target *target)
 {
 	struct armv8_common *armv8 = target_to_armv8(target);
 	struct arm_dpm *dpm = armv8->arm.dpm;
@@ -894,7 +237,7 @@ static __attribute__((unused)) int armv8_read_ttbcr(struct target *target)
 		armv8->pa_size = armv8_pa_size((ttbcr_64 >> 32) & 7);
 		armv8->page_size = (ttbcr_64 >> 14) & 3;
 		armv8->armv8_mmu.ttbr1_used = (((ttbcr_64 >> 16) & 0x3F) != 0) ? 1 : 0;
-		armv8->armv8_mmu.ttbr0_mask  = 0x0000FFFFFFFFFFFF;
+		armv8->armv8_mmu.ttbr0_mask  = 0x0000FFFFFFFFFFFFULL;
 		retval += dpm->instr_read_data_r0_64(dpm,
 				ARMV8_MRS(SYSTEM_TTBR0_EL1 | (armv8->armv8_mmu.ttbr1_used), 0),
 				&armv8->ttbr_base);
@@ -918,10 +261,876 @@ done:
 	return retval;
 }
 
-/*  method adapted to cortex A : reused arm v4 v5 method*/
-int armv8_mmu_translate_va(struct target *target,  target_addr_t va, target_addr_t *val)
+static int armv8_get_pauth_mask(struct armv8_common *armv8, uint64_t *mask)
 {
-	return ERROR_OK;
+	struct arm *arm = &armv8->arm;
+	int retval = ERROR_OK;
+	if (armv8->va_size == 0)
+		retval = armv8_read_ttbcr(arm->target);
+	if (retval != ERROR_OK)
+		return retval;
+
+	*mask = ~(((uint64_t)1 << armv8->va_size) - 1);
+
+	return retval;
+}
+
+static int armv8_read_reg(struct armv8_common *armv8, int regnum, uint64_t *regval)
+{
+	struct arm_dpm *dpm = &armv8->dpm;
+	unsigned int curel = armv8_curel_from_core_mode(dpm->arm->core_mode);
+	int retval;
+	uint32_t value;
+	uint64_t value_64;
+
+	if (!regval)
+		return ERROR_FAIL;
+
+	switch (regnum) {
+	case 0 ... 30:
+		retval = dpm->instr_read_data_dcc_64(dpm,
+				ARMV8_MSR_GP(SYSTEM_DBG_DBGDTR_EL0, regnum), &value_64);
+		break;
+	case ARMV8_SP:
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MOVFSP_64(0), &value_64);
+		break;
+	case ARMV8_PC:
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MRS_DLR(0), &value_64);
+		break;
+	case ARMV8_XPSR:
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV8_MRS_DSPSR(0), &value);
+		value_64 = value;
+		break;
+	case ARMV8_FPSR:
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV8_MRS_FPSR(0), &value);
+		value_64 = value;
+		break;
+	case ARMV8_FPCR:
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV8_MRS_FPCR(0), &value);
+		value_64 = value;
+		break;
+	case ARMV8_ELR_EL1:
+		if (curel < SYSTEM_CUREL_EL1) {
+			LOG_DEBUG("ELR_EL1 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MRS(SYSTEM_ELR_EL1, 0), &value_64);
+		break;
+	case ARMV8_ELR_EL2:
+		if (curel < SYSTEM_CUREL_EL2) {
+			LOG_DEBUG("ELR_EL2 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MRS(SYSTEM_ELR_EL2, 0), &value_64);
+		break;
+	case ARMV8_ELR_EL3:
+		if (curel < SYSTEM_CUREL_EL3) {
+			LOG_DEBUG("ELR_EL3 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MRS(SYSTEM_ELR_EL3, 0), &value_64);
+		break;
+	case ARMV8_ESR_EL1:
+		if (curel < SYSTEM_CUREL_EL1) {
+			LOG_DEBUG("ESR_EL1 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MRS(SYSTEM_ESR_EL1, 0), &value_64);
+		break;
+	case ARMV8_ESR_EL2:
+		if (curel < SYSTEM_CUREL_EL2) {
+			LOG_DEBUG("ESR_EL2 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MRS(SYSTEM_ESR_EL2, 0), &value_64);
+		break;
+	case ARMV8_ESR_EL3:
+		if (curel < SYSTEM_CUREL_EL3) {
+			LOG_DEBUG("ESR_EL3 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MRS(SYSTEM_ESR_EL3, 0), &value_64);
+		break;
+	case ARMV8_SPSR_EL1:
+		if (curel < SYSTEM_CUREL_EL1) {
+			LOG_DEBUG("SPSR_EL1 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MRS(SYSTEM_SPSR_EL1, 0), &value_64);
+		break;
+	case ARMV8_SPSR_EL2:
+		if (curel < SYSTEM_CUREL_EL2) {
+			LOG_DEBUG("SPSR_EL2 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MRS(SYSTEM_SPSR_EL2, 0), &value_64);
+		break;
+	case ARMV8_SPSR_EL3:
+		if (curel < SYSTEM_CUREL_EL3) {
+			LOG_DEBUG("SPSR_EL3 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MRS(SYSTEM_SPSR_EL3, 0), &value_64);
+		break;
+	case ARMV8_PAUTH_CMASK:
+	case ARMV8_PAUTH_DMASK:
+		retval = armv8_get_pauth_mask(armv8, &value_64);
+		break;
+	default:
+		retval = ERROR_FAIL;
+		break;
+	}
+
+	if (retval == ERROR_OK)
+		*regval = value_64;
+
+	return retval;
+}
+
+static int armv8_read_reg_simdfp_aarch64(struct armv8_common *armv8, int regnum, uint64_t *lvalue, uint64_t *hvalue)
+{
+	int retval = ERROR_FAIL;
+	struct arm_dpm *dpm = &armv8->dpm;
+
+	switch (regnum) {
+	case ARMV8_V0 ... ARMV8_V31:
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MOV_GPR_VFP(0, (regnum - ARMV8_V0), 1), hvalue);
+		if (retval != ERROR_OK)
+			return retval;
+		retval = dpm->instr_read_data_r0_64(dpm,
+				ARMV8_MOV_GPR_VFP(0, (regnum - ARMV8_V0), 0), lvalue);
+		break;
+
+	default:
+		retval = ERROR_FAIL;
+		break;
+	}
+
+	return retval;
+}
+
+static int armv8_write_reg(struct armv8_common *armv8, int regnum, uint64_t value_64)
+{
+	struct arm_dpm *dpm = &armv8->dpm;
+	unsigned int curel = armv8_curel_from_core_mode(dpm->arm->core_mode);
+	int retval;
+	uint32_t value;
+
+	switch (regnum) {
+	case 0 ... 30:
+		retval = dpm->instr_write_data_dcc_64(dpm,
+			ARMV8_MRS(SYSTEM_DBG_DBGDTR_EL0, regnum),
+			value_64);
+		break;
+	case ARMV8_SP:
+		retval = dpm->instr_write_data_r0_64(dpm,
+			ARMV8_MOVTSP_64(0),
+			value_64);
+		break;
+	case ARMV8_PC:
+		retval = dpm->instr_write_data_r0_64(dpm,
+			ARMV8_MSR_DLR(0),
+			value_64);
+		break;
+	case ARMV8_XPSR:
+		value = value_64;
+		retval = dpm->instr_write_data_r0(dpm,
+			ARMV8_MSR_DSPSR(0),
+			value);
+		break;
+	case ARMV8_FPSR:
+		value = value_64;
+		retval = dpm->instr_write_data_r0(dpm,
+			ARMV8_MSR_FPSR(0),
+			value);
+		break;
+	case ARMV8_FPCR:
+		value = value_64;
+		retval = dpm->instr_write_data_r0(dpm,
+			ARMV8_MSR_FPCR(0),
+			value);
+		break;
+	/* registers clobbered by taking exception in debug state */
+	case ARMV8_ELR_EL1:
+		if (curel < SYSTEM_CUREL_EL1) {
+			LOG_DEBUG("ELR_EL1 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MSR_GP(SYSTEM_ELR_EL1, 0), value_64);
+		break;
+	case ARMV8_ELR_EL2:
+		if (curel < SYSTEM_CUREL_EL2) {
+			LOG_DEBUG("ELR_EL2 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MSR_GP(SYSTEM_ELR_EL2, 0), value_64);
+		break;
+	case ARMV8_ELR_EL3:
+		if (curel < SYSTEM_CUREL_EL3) {
+			LOG_DEBUG("ELR_EL3 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MSR_GP(SYSTEM_ELR_EL3, 0), value_64);
+		break;
+	case ARMV8_ESR_EL1:
+		if (curel < SYSTEM_CUREL_EL1) {
+			LOG_DEBUG("ESR_EL1 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MSR_GP(SYSTEM_ESR_EL1, 0), value_64);
+		break;
+	case ARMV8_ESR_EL2:
+		if (curel < SYSTEM_CUREL_EL2) {
+			LOG_DEBUG("ESR_EL2 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MSR_GP(SYSTEM_ESR_EL2, 0), value_64);
+		break;
+	case ARMV8_ESR_EL3:
+		if (curel < SYSTEM_CUREL_EL3) {
+			LOG_DEBUG("ESR_EL3 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MSR_GP(SYSTEM_ESR_EL3, 0), value_64);
+		break;
+	case ARMV8_SPSR_EL1:
+		if (curel < SYSTEM_CUREL_EL1) {
+			LOG_DEBUG("SPSR_EL1 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MSR_GP(SYSTEM_SPSR_EL1, 0), value_64);
+		break;
+	case ARMV8_SPSR_EL2:
+		if (curel < SYSTEM_CUREL_EL2) {
+			LOG_DEBUG("SPSR_EL2 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MSR_GP(SYSTEM_SPSR_EL2, 0), value_64);
+		break;
+	case ARMV8_SPSR_EL3:
+		if (curel < SYSTEM_CUREL_EL3) {
+			LOG_DEBUG("SPSR_EL3 not accessible in EL%u", curel);
+			retval = ERROR_FAIL;
+			break;
+		}
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MSR_GP(SYSTEM_SPSR_EL3, 0), value_64);
+		break;
+	default:
+		retval = ERROR_FAIL;
+		break;
+	}
+
+	return retval;
+}
+
+static int armv8_write_reg_simdfp_aarch64(struct armv8_common *armv8, int regnum, uint64_t lvalue, uint64_t hvalue)
+{
+	int retval = ERROR_FAIL;
+	struct arm_dpm *dpm = &armv8->dpm;
+
+	switch (regnum) {
+	case ARMV8_V0 ... ARMV8_V31:
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MOV_VFP_GPR((regnum - ARMV8_V0), 0, 1), hvalue);
+		if (retval != ERROR_OK)
+			return retval;
+		retval = dpm->instr_write_data_r0_64(dpm,
+				ARMV8_MOV_VFP_GPR((regnum - ARMV8_V0), 0, 0), lvalue);
+		break;
+
+	default:
+		retval = ERROR_FAIL;
+		break;
+	}
+
+	return retval;
+}
+
+static int armv8_read_reg32(struct armv8_common *armv8, int regnum, uint64_t *regval)
+{
+	struct arm_dpm *dpm = &armv8->dpm;
+	uint32_t value = 0;
+	int retval;
+
+	if (!regval)
+		return ERROR_FAIL;
+
+	switch (regnum) {
+	case ARMV8_R0 ... ARMV8_R14:
+		/* return via DCC:  "MCR p14, 0, Rnum, c0, c5, 0" */
+		retval = dpm->instr_read_data_dcc(dpm,
+			ARMV4_5_MCR(14, 0, regnum, 0, 5, 0),
+			&value);
+		break;
+	case ARMV8_SP:
+		retval = dpm->instr_read_data_dcc(dpm,
+			ARMV4_5_MCR(14, 0, 13, 0, 5, 0),
+			&value);
+		break;
+	case ARMV8_PC:
+		retval = dpm->instr_read_data_r0(dpm,
+			ARMV8_MRC_DLR(0),
+			&value);
+		break;
+	case ARMV8_XPSR:
+		retval = dpm->instr_read_data_r0(dpm,
+			ARMV8_MRC_DSPSR(0),
+			&value);
+		break;
+	case ARMV8_ELR_EL1: /* mapped to LR_svc */
+		retval = dpm->instr_read_data_dcc(dpm,
+				ARMV4_5_MCR(14, 0, 14, 0, 5, 0),
+				&value);
+		break;
+	case ARMV8_ELR_EL2: /* mapped to ELR_hyp */
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV8_MRS_T1(0, 14, 0, 1),
+				&value);
+		break;
+	case ARMV8_ELR_EL3: /* mapped to LR_mon */
+		retval = dpm->instr_read_data_dcc(dpm,
+				ARMV4_5_MCR(14, 0, 14, 0, 5, 0),
+				&value);
+		break;
+	case ARMV8_ESR_EL1: /* mapped to DFSR */
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV4_5_MRC(15, 0, 0, 5, 0, 0),
+				&value);
+		break;
+	case ARMV8_ESR_EL2: /* mapped to HSR */
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV4_5_MRC(15, 4, 0, 5, 2, 0),
+				&value);
+		break;
+	case ARMV8_ESR_EL3: /* no equivalent in aarch32 */
+		retval = ERROR_FAIL;
+		break;
+	case ARMV8_SPSR_EL1: /* mapped to SPSR_svc */
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV8_MRS_XPSR_T1(1, 0),
+				&value);
+		break;
+	case ARMV8_SPSR_EL2: /* mapped to SPSR_hyp */
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV8_MRS_XPSR_T1(1, 0),
+				&value);
+		break;
+	case ARMV8_SPSR_EL3: /* mapped to SPSR_mon */
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV8_MRS_XPSR_T1(1, 0),
+				&value);
+		break;
+	case ARMV8_FPSR:
+		/* "VMRS r0, FPSCR"; then return via DCC */
+		retval = dpm->instr_read_data_r0(dpm,
+			ARMV4_5_VMRS(0), &value);
+		break;
+	default:
+		retval = ERROR_FAIL;
+		break;
+	}
+
+	if (retval == ERROR_OK)
+		*regval = value;
+
+	return retval;
+}
+
+static int armv8_read_reg_simdfp_aarch32(struct armv8_common *armv8, int regnum, uint64_t *lvalue, uint64_t *hvalue)
+{
+	int retval = ERROR_FAIL;
+	struct arm_dpm *dpm = &armv8->dpm;
+	struct reg *reg_r1 = dpm->arm->core_cache->reg_list + ARMV8_R1;
+	uint32_t value_r0 = 0, value_r1 = 0;
+	unsigned int num = (regnum - ARMV8_V0) << 1;
+
+	switch (regnum) {
+	case ARMV8_V0 ... ARMV8_V15:
+		/* we are going to write R1, mark it dirty */
+		reg_r1->dirty = true;
+		/* move from double word register to r0:r1: "vmov r0, r1, vm"
+		 * then read r0 via dcc
+		 */
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV4_5_VMOV(1, 1, 0, (num >> 4), (num & 0xf)),
+				&value_r0);
+		if (retval != ERROR_OK)
+			return retval;
+		/* read r1 via dcc */
+		retval = dpm->instr_read_data_dcc(dpm,
+				ARMV4_5_MCR(14, 0, 1, 0, 5, 0),
+				&value_r1);
+		if (retval != ERROR_OK)
+			return retval;
+		*lvalue = value_r1;
+		*lvalue = ((*lvalue) << 32) | value_r0;
+
+		num++;
+		/* repeat above steps for high 64 bits of V register */
+		retval = dpm->instr_read_data_r0(dpm,
+				ARMV4_5_VMOV(1, 1, 0, (num >> 4), (num & 0xf)),
+				&value_r0);
+		if (retval != ERROR_OK)
+			return retval;
+		retval = dpm->instr_read_data_dcc(dpm,
+				ARMV4_5_MCR(14, 0, 1, 0, 5, 0),
+				&value_r1);
+		if (retval != ERROR_OK)
+			return retval;
+		*hvalue = value_r1;
+		*hvalue = ((*hvalue) << 32) | value_r0;
+		break;
+	default:
+		retval = ERROR_FAIL;
+		break;
+	}
+
+	return retval;
+}
+
+static int armv8_write_reg32(struct armv8_common *armv8, int regnum, uint64_t value)
+{
+	struct arm_dpm *dpm = &armv8->dpm;
+	int retval;
+
+	switch (regnum) {
+	case ARMV8_R0 ... ARMV8_R14:
+		/* load register from DCC:  "MRC p14, 0, Rnum, c0, c5, 0" */
+		retval = dpm->instr_write_data_dcc(dpm,
+				ARMV4_5_MRC(14, 0, regnum, 0, 5, 0), value);
+		break;
+	case ARMV8_SP:
+		retval = dpm->instr_write_data_dcc(dpm,
+				ARMV4_5_MRC(14, 0, 13, 0, 5, 0), value);
+			break;
+	case ARMV8_PC:/* PC
+		 * read r0 from DCC; then "MOV pc, r0" */
+		retval = dpm->instr_write_data_r0(dpm,
+				ARMV8_MCR_DLR(0), value);
+		break;
+	case ARMV8_XPSR: /* CPSR */
+		/* read r0 from DCC, then "MCR r0, DSPSR" */
+		retval = dpm->instr_write_data_r0(dpm,
+				ARMV8_MCR_DSPSR(0), value);
+		break;
+	case ARMV8_ELR_EL1: /* mapped to LR_svc */
+		retval = dpm->instr_write_data_dcc(dpm,
+				ARMV4_5_MRC(14, 0, 14, 0, 5, 0),
+				value);
+		break;
+	case ARMV8_ELR_EL2: /* mapped to ELR_hyp */
+		retval = dpm->instr_write_data_r0(dpm,
+				ARMV8_MSR_GP_T1(0, 14, 0, 1),
+				value);
+		break;
+	case ARMV8_ELR_EL3: /* mapped to LR_mon */
+		retval = dpm->instr_write_data_dcc(dpm,
+				ARMV4_5_MRC(14, 0, 14, 0, 5, 0),
+				value);
+		break;
+	case ARMV8_ESR_EL1: /* mapped to DFSR */
+		retval = dpm->instr_write_data_r0(dpm,
+				ARMV4_5_MCR(15, 0, 0, 5, 0, 0),
+				value);
+		break;
+	case ARMV8_ESR_EL2: /* mapped to HSR */
+		retval = dpm->instr_write_data_r0(dpm,
+				ARMV4_5_MCR(15, 4, 0, 5, 2, 0),
+				value);
+		break;
+	case ARMV8_ESR_EL3: /* no equivalent in aarch32 */
+		retval = ERROR_FAIL;
+		break;
+	case ARMV8_SPSR_EL1: /* mapped to SPSR_svc */
+		retval = dpm->instr_write_data_r0(dpm,
+				ARMV8_MSR_GP_XPSR_T1(1, 0, 15),
+				value);
+		break;
+	case ARMV8_SPSR_EL2: /* mapped to SPSR_hyp */
+		retval = dpm->instr_write_data_r0(dpm,
+				ARMV8_MSR_GP_XPSR_T1(1, 0, 15),
+				value);
+		break;
+	case ARMV8_SPSR_EL3: /* mapped to SPSR_mon */
+		retval = dpm->instr_write_data_r0(dpm,
+				ARMV8_MSR_GP_XPSR_T1(1, 0, 15),
+				value);
+		break;
+	case ARMV8_FPSR:
+		/* move to r0 from DCC, then "VMSR FPSCR, r0" */
+		retval = dpm->instr_write_data_r0(dpm,
+			ARMV4_5_VMSR(0), value);
+		break;
+	default:
+		retval = ERROR_FAIL;
+		break;
+	}
+
+	return retval;
+
+}
+
+static int armv8_write_reg_simdfp_aarch32(struct armv8_common *armv8, int regnum, uint64_t lvalue, uint64_t hvalue)
+{
+	int retval = ERROR_FAIL;
+	struct arm_dpm *dpm = &armv8->dpm;
+	struct reg *reg_r1 = dpm->arm->core_cache->reg_list + ARMV8_R1;
+	uint32_t value_r0 = 0, value_r1 = 0;
+	unsigned int num = (regnum - ARMV8_V0) << 1;
+
+	switch (regnum) {
+	case ARMV8_V0 ... ARMV8_V15:
+		/* we are going to write R1, mark it dirty */
+		reg_r1->dirty = true;
+		value_r1 = lvalue >> 32;
+		value_r0 = lvalue & 0xFFFFFFFF;
+		/* write value_r1 to r1 via dcc */
+		retval = dpm->instr_write_data_dcc(dpm,
+			ARMV4_5_MRC(14, 0, 1, 0, 5, 0),
+			value_r1);
+		if (retval != ERROR_OK)
+			return retval;
+		/* write value_r0 to r0 via dcc then,
+		 * move to double word register from r0:r1: "vmov vm, r0, r1"
+		 */
+		retval = dpm->instr_write_data_r0(dpm,
+			ARMV4_5_VMOV(0, 1, 0, (num >> 4), (num & 0xf)),
+			value_r0);
+		if (retval != ERROR_OK)
+			return retval;
+
+		num++;
+		/* repeat above steps for high 64 bits of V register */
+		value_r1 = hvalue >> 32;
+		value_r0 = hvalue & 0xFFFFFFFF;
+		retval = dpm->instr_write_data_dcc(dpm,
+			ARMV4_5_MRC(14, 0, 1, 0, 5, 0),
+			value_r1);
+		if (retval != ERROR_OK)
+			return retval;
+		retval = dpm->instr_write_data_r0(dpm,
+			ARMV4_5_VMOV(0, 1, 0, (num >> 4), (num & 0xf)),
+			value_r0);
+		break;
+	default:
+		retval = ERROR_FAIL;
+		break;
+	}
+
+	return retval;
+}
+
+void armv8_select_reg_access(struct armv8_common *armv8, bool is_aarch64)
+{
+	if (is_aarch64) {
+		armv8->read_reg_u64 = armv8_read_reg;
+		armv8->write_reg_u64 = armv8_write_reg;
+		armv8->read_reg_u128 = armv8_read_reg_simdfp_aarch64;
+		armv8->write_reg_u128 = armv8_write_reg_simdfp_aarch64;
+
+	} else {
+		armv8->read_reg_u64 = armv8_read_reg32;
+		armv8->write_reg_u64 = armv8_write_reg32;
+		armv8->read_reg_u128 = armv8_read_reg_simdfp_aarch32;
+		armv8->write_reg_u128 = armv8_write_reg_simdfp_aarch32;
+	}
+}
+
+/*  retrieve core id cluster id  */
+int armv8_read_mpidr(struct armv8_common *armv8)
+{
+	int retval = ERROR_FAIL;
+	struct arm *arm = &armv8->arm;
+	struct arm_dpm *dpm = armv8->arm.dpm;
+	uint64_t mpidr;
+	uint8_t multi_processor_system;
+	uint8_t aff3;
+	uint8_t aff2;
+	uint8_t aff1;
+	uint8_t aff0;
+	uint8_t mt;
+
+	retval = dpm->prepare(dpm);
+	if (retval != ERROR_OK)
+		goto done;
+
+	/*
+	 * TODO: BUG - routine armv8_dpm_modeswitch() doesn't re-evaluate 'arm->dpm->core_state'.
+	 * If the core is halted in EL0 AArch32 while EL1 is in AArch64, the modeswitch moves the core
+	 * to EL1, but there is no re-evaluation of dpm->arm->core_state. As a result, while the core
+	 * is in AArch64, the code considers the system still in AArch32. The read of MPIDR would
+	 * select the instruction based on the old core_state. The call to 'armv8_dpm_get_core_state()'
+	 * below could also potentially return the incorrect execution state for the current EL.
+	 */
+
+	/* check if we're in an unprivileged mode */
+	if (armv8_curel_from_core_mode(arm->core_mode) < SYSTEM_CUREL_EL1) {
+		retval = armv8_dpm_modeswitch(dpm, ARMV8_64_EL1H);
+		if (retval != ERROR_OK)
+			return retval;
+	}
+
+	retval = dpm->instr_read_data_r0_64(dpm, armv8_opcode(armv8, READ_REG_MPIDR), &mpidr);
+	if (retval != ERROR_OK)
+		goto done;
+	if (mpidr & 1U<<31) {
+		multi_processor_system = (mpidr >> 30) & 1;
+		aff3 = (mpidr >> 32) & 0xff;
+		aff2 = (mpidr >> 16) & 0xff;
+		aff1 = (mpidr >> 8) & 0xff;
+		aff0 = mpidr & 0xff;
+		mt = (mpidr >> 24) & 0x1;
+		if (armv8_dpm_get_core_state(&armv8->dpm) == ARM_STATE_AARCH64) {
+			if (mt)
+				LOG_INFO("%s socket %" PRIu32 " cluster %" PRIu32 " core %" PRIu32 " thread %" PRIu32 " %s",
+					target_name(armv8->arm.target),
+					aff3, aff2, aff1, aff0,
+					multi_processor_system == 0 ? "multi core" : "single core");
+			else
+				LOG_INFO("%s socket %" PRIu32 " cluster %" PRIu32 " core %" PRIu32 " %s",
+					target_name(armv8->arm.target),
+					aff3, aff1, aff0,
+					multi_processor_system == 0 ? "multi core" : "single core");
+		} else {
+			if (mt)
+				LOG_INFO("%s cluster %" PRIu32 " core %" PRIu32 " thread %" PRIu32 " %s",
+					target_name(armv8->arm.target),
+					aff2, aff1, aff0,
+					multi_processor_system == 0 ? "multi core" : "single core");
+			else
+				LOG_INFO("%s cluster %" PRIu32 " core %" PRIu32 " %s",
+					target_name(armv8->arm.target),
+					aff1, aff0,
+					multi_processor_system == 0 ? "multi core" : "single core");
+		}
+	} else
+		LOG_ERROR("mpidr not in multiprocessor format");
+
+done:
+	armv8_dpm_modeswitch(dpm, ARM_MODE_ANY);
+	dpm->finish(dpm);
+	return retval;
+}
+
+/**
+ * Configures host-side ARM records to reflect the specified CPSR.
+ * Later, code can use arm_reg_current() to map register numbers
+ * according to how they are exposed by this mode.
+ */
+void armv8_set_cpsr(struct arm *arm, uint32_t cpsr)
+{
+	uint32_t mode = cpsr & 0x1F;
+
+	/* NOTE:  this may be called very early, before the register
+	 * cache is set up.  We can't defend against many errors, in
+	 * particular against CPSRs that aren't valid *here* ...
+	 */
+	if (arm->cpsr) {
+		buf_set_u32(arm->cpsr->value, 0, 32, cpsr);
+		arm->cpsr->valid = true;
+		arm->cpsr->dirty = false;
+	}
+
+	/* Older ARMs won't have the J bit */
+	enum arm_state state = 0xFF;
+
+	if ((cpsr & 0x10) != 0) {
+		/* Aarch32 state */
+		if (cpsr & (1 << 5)) {	/* T */
+			if (cpsr & (1 << 24)) { /* J */
+				LOG_WARNING("ThumbEE -- incomplete support");
+				state = ARM_STATE_THUMB_EE;
+			} else
+				state = ARM_STATE_THUMB;
+		} else {
+			if (cpsr & (1 << 24)) { /* J */
+				LOG_ERROR("Jazelle state handling is BROKEN!");
+				state = ARM_STATE_JAZELLE;
+			} else
+				state = ARM_STATE_ARM;
+		}
+	} else {
+		/* Aarch64 state */
+		state = ARM_STATE_AARCH64;
+	}
+
+	arm->core_state = state;
+	arm->core_mode = mode;
+
+	LOG_DEBUG("set CPSR %#8.8" PRIx32 ": %s mode, %s state", cpsr,
+		armv8_mode_name(arm->core_mode),
+		armv8_state_strings[arm->core_state]);
+}
+
+static void armv8_show_fault_registers32(struct armv8_common *armv8)
+{
+	uint32_t dfsr, ifsr, dfar, ifar;
+	struct arm_dpm *dpm = armv8->arm.dpm;
+	int retval;
+
+	retval = dpm->prepare(dpm);
+	if (retval != ERROR_OK)
+		return;
+
+	/* ARMV4_5_MRC(cpnum, op1, r0, crn, crm, op2) */
+
+	/* c5/c0 - {data, instruction} fault status registers */
+	retval = dpm->instr_read_data_r0(dpm,
+			ARMV4_5_MRC(15, 0, 0, 5, 0, 0),
+			&dfsr);
+	if (retval != ERROR_OK)
+		goto done;
+
+	retval = dpm->instr_read_data_r0(dpm,
+			ARMV4_5_MRC(15, 0, 0, 5, 0, 1),
+			&ifsr);
+	if (retval != ERROR_OK)
+		goto done;
+
+	/* c6/c0 - {data, instruction} fault address registers */
+	retval = dpm->instr_read_data_r0(dpm,
+			ARMV4_5_MRC(15, 0, 0, 6, 0, 0),
+			&dfar);
+	if (retval != ERROR_OK)
+		goto done;
+
+	retval = dpm->instr_read_data_r0(dpm,
+			ARMV4_5_MRC(15, 0, 0, 6, 0, 2),
+			&ifar);
+	if (retval != ERROR_OK)
+		goto done;
+
+	LOG_USER("Data fault registers        DFSR: %8.8" PRIx32
+		", DFAR: %8.8" PRIx32, dfsr, dfar);
+	LOG_USER("Instruction fault registers IFSR: %8.8" PRIx32
+		", IFAR: %8.8" PRIx32, ifsr, ifar);
+
+done:
+	dpm->finish(dpm);
+}
+
+static __attribute__((unused)) void armv8_show_fault_registers(struct target *target)
+{
+	struct armv8_common *armv8 = target_to_armv8(target);
+
+	if (armv8->arm.core_state != ARM_STATE_AARCH64)
+		armv8_show_fault_registers32(armv8);
+}
+
+static void armv8_decode_cacheability(int attr)
+{
+	if (attr == 0) {
+		LOG_USER_N("UNPREDICTABLE");
+		return;
+	}
+	if (attr == 4) {
+		LOG_USER_N("Non-cacheable");
+		return;
+	}
+	switch (attr & 0xC) {
+		case 0:
+			LOG_USER_N("Write-Through Transient");
+			break;
+		case 0x4:
+			LOG_USER_N("Write-Back Transient");
+			break;
+		case 0x8:
+			LOG_USER_N("Write-Through Non-transient");
+			break;
+		case 0xC:
+			LOG_USER_N("Write-Back Non-transient");
+			break;
+	}
+	if (attr & 2)
+		LOG_USER_N(" Read-Allocate");
+	else
+		LOG_USER_N(" No-Read Allocate");
+	if (attr & 1)
+		LOG_USER_N(" Write-Allocate");
+	else
+		LOG_USER_N(" No-Write Allocate");
+}
+
+static void armv8_decode_memory_attr(int attr)
+{
+	if (attr == 0x40) {
+		LOG_USER("Normal Memory, Inner Non-cacheable, "
+			 "Outer Non-cacheable, XS=0");
+	} else if (attr == 0xA0) {
+		LOG_USER("Normal Memory, Inner Write-through Cacheable, "
+			 "Outer Write-through Cacheable, Read-Allocate, "
+			 "No-Write Allocate, Non-transient, XS=0");
+	} else if (attr == 0xF0) {
+		LOG_USER("Tagged Normal Memory, Inner Write-Back, "
+			 "Outer Write-Back, Read-Allocate, Write-Allocate, "
+			 "Non-transient");
+	} else if ((attr & 0xF0) == 0) {
+		switch (attr & 0xC) {
+			case 0:
+				LOG_USER_N("Device-nGnRnE Memory");
+				break;
+			case 0x4:
+				LOG_USER_N("Device-nGnRE Memory");
+				break;
+			case 0x8:
+				LOG_USER_N("Device-nGRE Memory");
+				break;
+			case 0xC:
+				LOG_USER_N("Device-GRE Memory");
+				break;
+		}
+		if (attr & 1)
+			LOG_USER(", XS=0");
+		else
+			LOG_USER_N("\n");
+	} else {
+		LOG_USER_N("Normal Memory, Inner ");
+		armv8_decode_cacheability(attr & 0xF);
+		LOG_USER_N(", Outer ");
+		armv8_decode_cacheability(attr >> 4);
+		LOG_USER_N("\n");
+	}
 }
 
 /*  V8 method VA TO PA  */
@@ -945,7 +1154,7 @@ int armv8_mmu_translate_va_pa(struct target *target, target_addr_t va,
 	};
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target %s not halted", target_name(target));
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -1006,11 +1215,9 @@ int armv8_mmu_translate_va_pa(struct target *target, target_addr_t va,
 			int NS = (par >> 9) & 1;
 			int ATTR = (par >> 56) & 0xFF;
 
-			char *memtype = (ATTR & 0xF0) == 0 ? "Device Memory" : "Normal Memory";
-
 			LOG_USER("%sshareable, %s",
 					shared_name[SH], secure_name[NS]);
-			LOG_USER("%s", memtype);
+			armv8_decode_memory_attr(ATTR);
 		}
 	}
 
@@ -1025,7 +1232,7 @@ COMMAND_HANDLER(armv8_handle_exception_catch_command)
 	unsigned int argp = 0;
 	int retval;
 
-	static const struct jim_nvp nvp_ecatch_modes[] = {
+	static const struct nvp nvp_ecatch_modes[] = {
 		{ .name = "off",       .value = 0 },
 		{ .name = "nsec_el1",  .value = (1 << 5) },
 		{ .name = "nsec_el2",  .value = (2 << 5) },
@@ -1035,7 +1242,7 @@ COMMAND_HANDLER(armv8_handle_exception_catch_command)
 		{ .name = "sec_el13",  .value = (5 << 1) },
 		{ .name = NULL, .value = -1 },
 	};
-	const struct jim_nvp *n;
+	const struct nvp *n;
 
 	if (CMD_ARGC == 0) {
 		const char *sec = NULL, *nsec = NULL;
@@ -1045,11 +1252,11 @@ COMMAND_HANDLER(armv8_handle_exception_catch_command)
 		if (retval != ERROR_OK)
 			return retval;
 
-		n = jim_nvp_value2name_simple(nvp_ecatch_modes, edeccr & 0x0f);
+		n = nvp_value2name(nvp_ecatch_modes, edeccr & 0x0f);
 		if (n->name)
 			sec = n->name;
 
-		n = jim_nvp_value2name_simple(nvp_ecatch_modes, edeccr & 0xf0);
+		n = nvp_value2name(nvp_ecatch_modes, edeccr & 0xf0);
 		if (n->name)
 			nsec = n->name;
 
@@ -1063,7 +1270,7 @@ COMMAND_HANDLER(armv8_handle_exception_catch_command)
 	}
 
 	while (argp < CMD_ARGC) {
-		n = jim_nvp_name2value_simple(nvp_ecatch_modes, CMD_ARGV[argp]);
+		n = nvp_name2value(nvp_ecatch_modes, CMD_ARGV[argp]);
 		if (!n->name) {
 			LOG_ERROR("Unknown option: %s", CMD_ARGV[argp]);
 			return ERROR_FAIL;
@@ -1081,6 +1288,15 @@ COMMAND_HANDLER(armv8_handle_exception_catch_command)
 		return retval;
 
 	return ERROR_OK;
+}
+
+COMMAND_HANDLER(armv8_pauth_command)
+{
+	struct target *target = get_current_target(CMD_CTX);
+	struct armv8_common *armv8 = target_to_armv8(target);
+	return CALL_COMMAND_HANDLER(handle_command_parse_bool,
+				    &armv8->enable_pauth,
+				    "pauth feature");
 }
 
 int armv8_handle_cache_info_command(struct command_invocation *cmd,
@@ -1321,9 +1537,9 @@ static struct reg_data_type aarch64_flags_cpsr[] = {
 };
 
 static const struct {
-	unsigned id;
+	unsigned int id;
 	const char *name;
-	unsigned bits;
+	unsigned int bits;
 	enum arm_mode mode;
 	enum reg_type type;
 	const char *group;
@@ -1364,7 +1580,7 @@ static const struct {
 
 	{ ARMV8_SP, "sp", 64, ARM_MODE_ANY, REG_TYPE_DATA_PTR, "general", "org.gnu.gdb.aarch64.core", NULL},
 	{ ARMV8_PC, "pc", 64, ARM_MODE_ANY, REG_TYPE_CODE_PTR, "general", "org.gnu.gdb.aarch64.core", NULL},
-	{ ARMV8_xPSR, "cpsr", 32, ARM_MODE_ANY, REG_TYPE_ARCH_DEFINED,
+	{ ARMV8_XPSR, "cpsr", 32, ARM_MODE_ANY, REG_TYPE_ARCH_DEFINED,
 		"general", "org.gnu.gdb.aarch64.core", aarch64_flags_cpsr},
 	{ ARMV8_V0,  "v0",  128, ARM_MODE_ANY, REG_TYPE_ARCH_DEFINED, "simdfp", "org.gnu.gdb.aarch64.fpu", aarch64v},
 	{ ARMV8_V1,  "v1",  128, ARM_MODE_ANY, REG_TYPE_ARCH_DEFINED, "simdfp", "org.gnu.gdb.aarch64.fpu", aarch64v},
@@ -1403,31 +1619,33 @@ static const struct {
 
 	{ ARMV8_ELR_EL1, "ELR_EL1", 64, ARMV8_64_EL1H, REG_TYPE_CODE_PTR, "banked", "net.sourceforge.openocd.banked",
 														NULL},
-	{ ARMV8_ESR_EL1, "ESR_EL1", 32, ARMV8_64_EL1H, REG_TYPE_UINT32, "banked", "net.sourceforge.openocd.banked",
+	{ ARMV8_ESR_EL1, "ESR_EL1", 64, ARMV8_64_EL1H, REG_TYPE_UINT64, "banked", "net.sourceforge.openocd.banked",
 														NULL},
-	{ ARMV8_SPSR_EL1, "SPSR_EL1", 32, ARMV8_64_EL1H, REG_TYPE_UINT32, "banked", "net.sourceforge.openocd.banked",
+	{ ARMV8_SPSR_EL1, "SPSR_EL1", 64, ARMV8_64_EL1H, REG_TYPE_UINT64, "banked", "net.sourceforge.openocd.banked",
 														NULL},
 
 	{ ARMV8_ELR_EL2, "ELR_EL2", 64, ARMV8_64_EL2H, REG_TYPE_CODE_PTR, "banked", "net.sourceforge.openocd.banked",
 														NULL},
-	{ ARMV8_ESR_EL2, "ESR_EL2", 32, ARMV8_64_EL2H, REG_TYPE_UINT32, "banked", "net.sourceforge.openocd.banked",
+	{ ARMV8_ESR_EL2, "ESR_EL2", 64, ARMV8_64_EL2H, REG_TYPE_UINT64, "banked", "net.sourceforge.openocd.banked",
 														NULL},
-	{ ARMV8_SPSR_EL2, "SPSR_EL2", 32, ARMV8_64_EL2H, REG_TYPE_UINT32, "banked", "net.sourceforge.openocd.banked",
+	{ ARMV8_SPSR_EL2, "SPSR_EL2", 64, ARMV8_64_EL2H, REG_TYPE_UINT64, "banked", "net.sourceforge.openocd.banked",
 														NULL},
 
 	{ ARMV8_ELR_EL3, "ELR_EL3", 64, ARMV8_64_EL3H, REG_TYPE_CODE_PTR, "banked", "net.sourceforge.openocd.banked",
 														NULL},
-	{ ARMV8_ESR_EL3, "ESR_EL3", 32, ARMV8_64_EL3H, REG_TYPE_UINT32, "banked", "net.sourceforge.openocd.banked",
+	{ ARMV8_ESR_EL3, "ESR_EL3", 64, ARMV8_64_EL3H, REG_TYPE_UINT64, "banked", "net.sourceforge.openocd.banked",
 														NULL},
-	{ ARMV8_SPSR_EL3, "SPSR_EL3", 32, ARMV8_64_EL3H, REG_TYPE_UINT32, "banked", "net.sourceforge.openocd.banked",
+	{ ARMV8_SPSR_EL3, "SPSR_EL3", 64, ARMV8_64_EL3H, REG_TYPE_UINT64, "banked", "net.sourceforge.openocd.banked",
 														NULL},
+	{ ARMV8_PAUTH_DMASK, "pauth_dmask", 64, ARM_MODE_ANY, REG_TYPE_UINT64, NULL, "org.gnu.gdb.aarch64.pauth", NULL},
+	{ ARMV8_PAUTH_CMASK, "pauth_cmask", 64, ARM_MODE_ANY, REG_TYPE_UINT64, NULL, "org.gnu.gdb.aarch64.pauth", NULL},
 };
 
 static const struct {
-	unsigned id;
-	unsigned mapping;
+	unsigned int id;
+	unsigned int mapping;
 	const char *name;
-	unsigned bits;
+	unsigned int bits;
 	enum arm_mode mode;
 	enum reg_type type;
 	const char *group;
@@ -1449,7 +1667,7 @@ static const struct {
 	{ ARMV8_R13, 0, "sp", 32, ARM_MODE_ANY, REG_TYPE_DATA_PTR, "general", "org.gnu.gdb.arm.core" },
 	{ ARMV8_R14, 0, "lr",  32, ARM_MODE_ANY, REG_TYPE_CODE_PTR, "general", "org.gnu.gdb.arm.core" },
 	{ ARMV8_PC, 0, "pc",   32, ARM_MODE_ANY, REG_TYPE_CODE_PTR, "general", "org.gnu.gdb.arm.core" },
-	{ ARMV8_xPSR, 0, "cpsr", 32, ARM_MODE_ANY, REG_TYPE_UINT32, "general", "org.gnu.gdb.arm.core" },
+	{ ARMV8_XPSR, 0, "cpsr", 32, ARM_MODE_ANY, REG_TYPE_UINT32, "general", "org.gnu.gdb.arm.core" },
 	{ ARMV8_V0, 0, "d0",  64, ARM_MODE_ANY, REG_TYPE_IEEE_DOUBLE, NULL, "org.gnu.gdb.arm.vfp"},
 	{ ARMV8_V0, 8, "d1",  64, ARM_MODE_ANY, REG_TYPE_IEEE_DOUBLE, NULL, "org.gnu.gdb.arm.vfp"},
 	{ ARMV8_V1, 0, "d2",  64, ARM_MODE_ANY, REG_TYPE_IEEE_DOUBLE, NULL, "org.gnu.gdb.arm.vfp"},
@@ -1505,12 +1723,12 @@ static int armv8_set_core_reg(struct reg *reg, uint8_t *buf)
 	struct arm_reg *armv8_reg = reg->arch_info;
 	struct target *target = armv8_reg->target;
 	struct arm *arm = target_to_arm(target);
-	uint64_t value = buf_get_u64(buf, 0, reg->size);
 
 	if (target->state != TARGET_HALTED)
 		return ERROR_TARGET_NOT_HALTED;
 
 	if (reg->size <= 64) {
+		uint64_t value = buf_get_u64(buf, 0, reg->size);
 		if (reg == arm->cpsr)
 			armv8_set_cpsr(arm, (uint32_t)value);
 		else {
@@ -1518,6 +1736,7 @@ static int armv8_set_core_reg(struct reg *reg, uint8_t *buf)
 			reg->valid = true;
 		}
 	} else if (reg->size <= 128) {
+		uint64_t value = buf_get_u64(buf, 0, 64);
 		uint64_t hvalue = buf_get_u64(buf + 8, 0, reg->size - 64);
 
 		buf_set_u64(reg->value, 0, 64, value);
@@ -1650,9 +1869,12 @@ struct reg_cache *armv8_build_reg_cache(struct target *target)
 				*reg_list[i].reg_data_type = *armv8_regs[i].data_type;
 		} else
 			LOG_ERROR("unable to allocate reg type list");
+
+		if (i == ARMV8_PAUTH_CMASK || i == ARMV8_PAUTH_DMASK)
+			reg_list[i].exist = armv8->enable_pauth;
 	}
 
-	arm->cpsr = reg_list + ARMV8_xPSR;
+	arm->cpsr = reg_list + ARMV8_XPSR;
 	arm->pc = reg_list + ARMV8_PC;
 	arm->core_cache = cache;
 
@@ -1691,7 +1913,7 @@ struct reg_cache *armv8_build_reg_cache(struct target *target)
 	return cache;
 }
 
-struct reg *armv8_reg_current(struct arm *arm, unsigned regnum)
+struct reg *armv8_reg_current(struct arm *arm, unsigned int regnum)
 {
 	struct reg *r;
 
@@ -1745,10 +1967,21 @@ const struct command_registration armv8_command_handlers[] = {
 		.help = "configure exception catch",
 		.usage = "[(nsec_el1,nsec_el2,sec_el1,sec_el3)+,off]",
 	},
+	{
+		.name = "pauth",
+		.handler = armv8_pauth_command,
+		.mode = COMMAND_CONFIG,
+		.help = "enable or disable providing GDB with an 8-bytes mask to "
+			"remove signature bits added by pointer authentication."
+			"Pointer authentication feature is broken until gdb 12.1, going to be fixed. "
+			"Consider using a newer version of gdb if you want enable "
+			"pauth feature.",
+		.usage = "[on|off]",
+	},
 	COMMAND_REGISTRATION_DONE
 };
 
-const char *armv8_get_gdb_arch(struct target *target)
+const char *armv8_get_gdb_arch(const struct target *target)
 {
 	struct arm *arm = target_to_arm(target);
 	return arm->core_state == ARM_STATE_AARCH64 ? "aarch64" : "arm";
@@ -1771,7 +2004,7 @@ int armv8_get_gdb_reg_list(struct target *target,
 			*reg_list = malloc(sizeof(struct reg *) * (*reg_list_size));
 
 			for (i = 0; i < *reg_list_size; i++)
-					(*reg_list)[i] = armv8_reg_current(arm, i);
+				(*reg_list)[i] = armv8_reg_current(arm, i);
 			return ERROR_OK;
 
 		case REG_CLASS_ALL:
@@ -1779,7 +2012,7 @@ int armv8_get_gdb_reg_list(struct target *target,
 			*reg_list = malloc(sizeof(struct reg *) * (*reg_list_size));
 
 			for (i = 0; i < *reg_list_size; i++)
-					(*reg_list)[i] = armv8_reg_current(arm, i);
+				(*reg_list)[i] = armv8_reg_current(arm, i);
 
 			return ERROR_OK;
 

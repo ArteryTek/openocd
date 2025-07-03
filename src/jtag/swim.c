@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /*
  * Copyright (C) 2020 by Antonio Borneo <borneo.antonio@gmail.com
@@ -136,7 +136,7 @@ static int swim_transport_init(struct command_context *cmd_ctx)
 }
 
 static struct transport swim_transport = {
-	.name = "swim",
+	.id = TRANSPORT_SWIM,
 	.select = swim_transport_select,
 	.init = swim_transport_init,
 };

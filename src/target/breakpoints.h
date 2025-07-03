@@ -26,7 +26,7 @@ enum watchpoint_rw {
 struct breakpoint {
 	target_addr_t address;
 	uint32_t asid;
-	int length;
+	unsigned int length;
 	enum breakpoint_type type;
 	bool is_set;
 	unsigned int number;
@@ -36,11 +36,13 @@ struct breakpoint {
 	int linked_brp;
 };
 
+#define WATCHPOINT_IGNORE_DATA_VALUE_MASK (~(uint64_t)0)
+
 struct watchpoint {
 	target_addr_t address;
-	uint32_t length;
-	uint32_t mask;
-	uint32_t value;
+	unsigned int length;
+	uint64_t mask;
+	uint64_t value;
 	enum watchpoint_rw rw;
 	bool is_set;
 	unsigned int number;
@@ -48,15 +50,16 @@ struct watchpoint {
 	int unique_id;
 };
 
-void breakpoint_clear_target(struct target *target);
+int breakpoint_clear_target(struct target *target);
 int breakpoint_add(struct target *target,
-		target_addr_t address, uint32_t length, enum breakpoint_type type);
+		target_addr_t address, unsigned int length, enum breakpoint_type type);
 int context_breakpoint_add(struct target *target,
-		uint32_t asid, uint32_t length, enum breakpoint_type type);
+		uint32_t asid, unsigned int length, enum breakpoint_type type);
 int hybrid_breakpoint_add(struct target *target,
-		target_addr_t address, uint32_t asid, uint32_t length, enum breakpoint_type type);
-void breakpoint_remove(struct target *target, target_addr_t address);
-void breakpoint_remove_all(struct target *target);
+		target_addr_t address, uint32_t asid, unsigned int length,
+		enum breakpoint_type type);
+int breakpoint_remove(struct target *target, target_addr_t address);
+int breakpoint_remove_all(struct target *target);
 
 struct breakpoint *breakpoint_find(struct target *target, target_addr_t address);
 
@@ -66,11 +69,12 @@ static inline void breakpoint_hw_set(struct breakpoint *breakpoint, unsigned int
 	breakpoint->number = hw_number;
 }
 
-void watchpoint_clear_target(struct target *target);
+int watchpoint_clear_target(struct target *target);
 int watchpoint_add(struct target *target,
-		target_addr_t address, uint32_t length,
-		enum watchpoint_rw rw, uint32_t value, uint32_t mask);
-void watchpoint_remove(struct target *target, target_addr_t address);
+		target_addr_t address, unsigned int length,
+		enum watchpoint_rw rw, uint64_t value, uint64_t mask);
+int watchpoint_remove(struct target *target, target_addr_t address);
+int watchpoint_remove_all(struct target *target);
 
 /* report type and address of just hit watchpoint */
 int watchpoint_hit(struct target *target, enum watchpoint_rw *rw,
@@ -81,5 +85,8 @@ static inline void watchpoint_set(struct watchpoint *watchpoint, unsigned int nu
 	watchpoint->is_set = true;
 	watchpoint->number = number;
 }
+
+#define ERROR_BREAKPOINT_NOT_FOUND (-1600)
+#define ERROR_WATCHPOINT_NOT_FOUND (-1601)
 
 #endif /* OPENOCD_TARGET_BREAKPOINTS_H */

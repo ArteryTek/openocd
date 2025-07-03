@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2005 by Dominic Rath <Dominic.Rath@gmx.de>
  * Copyright (C) 2007-2010 Øyvind Harboe <oyvind.harboe@zylin.com>
@@ -16,11 +16,8 @@
 #include "minidriver.h"
 #include "interface.h"
 #include "interfaces.h"
+#include <helper/bits.h>
 #include <transport/transport.h>
-
-#ifdef HAVE_STRINGS_H
-#include <strings.h>
-#endif
 
 /**
  * @file
@@ -28,13 +25,14 @@
  */
 
 struct adapter_driver *adapter_driver;
-const char * const jtag_only[] = { "jtag", NULL };
 
 enum adapter_clk_mode {
 	CLOCK_MODE_UNSELECTED = 0,
 	CLOCK_MODE_KHZ,
 	CLOCK_MODE_RCLK
 };
+
+#define DEFAULT_CLOCK_SPEED_KHZ		100U
 
 /**
  * Adapter configuration
@@ -46,11 +44,75 @@ static struct {
 	enum adapter_clk_mode clock_mode;
 	int speed_khz;
 	int rclk_fallback_speed_khz;
+	struct adapter_gpio_config gpios[ADAPTER_GPIO_IDX_NUM];
+	bool gpios_initialized; /* Initialization of GPIOs to their unset values performed at run time */
 } adapter_config;
+
+static const struct gpio_map {
+	const char *name;
+	enum adapter_gpio_direction direction;
+	bool permit_drive_option;
+	bool permit_init_state_option;
+} gpio_map[ADAPTER_GPIO_IDX_NUM] = {
+	[ADAPTER_GPIO_IDX_TDO] = { "tdo", ADAPTER_GPIO_DIRECTION_INPUT, false, true, },
+	[ADAPTER_GPIO_IDX_TDI] = { "tdi", ADAPTER_GPIO_DIRECTION_OUTPUT, true, true, },
+	[ADAPTER_GPIO_IDX_TMS] = { "tms", ADAPTER_GPIO_DIRECTION_OUTPUT, true, true, },
+	[ADAPTER_GPIO_IDX_TCK] = { "tck", ADAPTER_GPIO_DIRECTION_OUTPUT, true, true, },
+	[ADAPTER_GPIO_IDX_SWDIO] = { "swdio", ADAPTER_GPIO_DIRECTION_BIDIRECTIONAL, true, true, },
+	[ADAPTER_GPIO_IDX_SWDIO_DIR] = { "swdio_dir", ADAPTER_GPIO_DIRECTION_OUTPUT, true, false, },
+	[ADAPTER_GPIO_IDX_SWCLK] = { "swclk", ADAPTER_GPIO_DIRECTION_OUTPUT, true, true, },
+	[ADAPTER_GPIO_IDX_TRST] = { "trst", ADAPTER_GPIO_DIRECTION_OUTPUT, false, true, },
+	[ADAPTER_GPIO_IDX_SRST] = { "srst", ADAPTER_GPIO_DIRECTION_OUTPUT, false, true, },
+	[ADAPTER_GPIO_IDX_LED] = { "led", ADAPTER_GPIO_DIRECTION_OUTPUT, true, true, },
+};
+
+static int adapter_config_khz(unsigned int khz);
 
 bool is_adapter_initialized(void)
 {
 	return adapter_config.adapter_initialized;
+}
+
+/* For convenience of the bit-banging drivers keep the gpio_config drive
+ * settings for srst and trst in sync with values set by the "adapter
+ * reset_config" command.
+ */
+static void sync_adapter_reset_with_gpios(void)
+{
+	enum reset_types cfg = jtag_get_reset_config();
+	if (cfg & RESET_SRST_PUSH_PULL)
+		adapter_config.gpios[ADAPTER_GPIO_IDX_SRST].drive = ADAPTER_GPIO_DRIVE_MODE_PUSH_PULL;
+	else
+		adapter_config.gpios[ADAPTER_GPIO_IDX_SRST].drive = ADAPTER_GPIO_DRIVE_MODE_OPEN_DRAIN;
+	if (cfg & RESET_TRST_OPEN_DRAIN)
+		adapter_config.gpios[ADAPTER_GPIO_IDX_TRST].drive = ADAPTER_GPIO_DRIVE_MODE_OPEN_DRAIN;
+	else
+		adapter_config.gpios[ADAPTER_GPIO_IDX_TRST].drive = ADAPTER_GPIO_DRIVE_MODE_PUSH_PULL;
+}
+
+static void adapter_driver_gpios_init(void)
+{
+	if (adapter_config.gpios_initialized)
+		return;
+
+	for (int i = 0; i < ADAPTER_GPIO_IDX_NUM; ++i) {
+		/* Use ADAPTER_GPIO_NOT_SET as the sentinel 'unset' value. */
+		adapter_config.gpios[i].gpio_num = ADAPTER_GPIO_NOT_SET;
+		adapter_config.gpios[i].chip_num = ADAPTER_GPIO_NOT_SET;
+		if (gpio_map[i].direction == ADAPTER_GPIO_DIRECTION_INPUT)
+			adapter_config.gpios[i].init_state = ADAPTER_GPIO_INIT_STATE_INPUT;
+	}
+
+	/* Drivers assume active low, and this is the normal behaviour for reset
+	 * lines so should be the default. */
+	adapter_config.gpios[ADAPTER_GPIO_IDX_SRST].active_low = true;
+	adapter_config.gpios[ADAPTER_GPIO_IDX_TRST].active_low = true;
+	sync_adapter_reset_with_gpios();
+
+	/* JTAG GPIOs should be inactive except for tms */
+	adapter_config.gpios[ADAPTER_GPIO_IDX_TMS].init_state = ADAPTER_GPIO_INIT_STATE_ACTIVE;
+
+	adapter_config.gpios_initialized = true;
 }
 
 /**
@@ -69,21 +131,31 @@ int adapter_init(struct command_context *cmd_ctx)
 		return ERROR_JTAG_INVALID_INTERFACE;
 	}
 
+	adapter_driver_gpios_init();
+
 	int retval;
+
+	/* If the adapter supports configurable speed but the speed is not configured,
+	 * provide a hint to the user. */
+	if (adapter_driver->speed && adapter_config.clock_mode == CLOCK_MODE_UNSELECTED) {
+		LOG_WARNING("An adapter speed is not selected in the init scripts."
+			" OpenOCD will try to run the adapter at very low speed (%d kHz).",
+			DEFAULT_CLOCK_SPEED_KHZ);
+		LOG_WARNING("To remove this warnings and achieve reasonable communication speed with the target,"
+		    " set \"adapter speed\" or \"jtag_rclk\" in the init scripts.");
+		retval = adapter_config_khz(DEFAULT_CLOCK_SPEED_KHZ);
+		if (retval != ERROR_OK)
+			return ERROR_JTAG_INIT_FAILED;
+	}
+
 	retval = adapter_driver->init();
 	if (retval != ERROR_OK)
 		return retval;
 	adapter_config.adapter_initialized = true;
 
 	if (!adapter_driver->speed) {
-		LOG_INFO("This adapter doesn't support configurable speed");
+		LOG_INFO("Note: The adapter \"%s\" doesn't support configurable speed", adapter_driver->name);
 		return ERROR_OK;
-	}
-
-	if (adapter_config.clock_mode == CLOCK_MODE_UNSELECTED) {
-		LOG_ERROR("An adapter speed is not selected in the init script."
-			" Insert a call to \"adapter speed\" or \"jtag_rclk\" to proceed.");
-		return ERROR_JTAG_INIT_FAILED;
 	}
 
 	int requested_khz = adapter_get_speed_khz();
@@ -115,7 +187,6 @@ int adapter_init(struct command_context *cmd_ctx)
 int adapter_quit(void)
 {
 	if (is_adapter_initialized() && adapter_driver->quit) {
-		/* close the JTAG interface */
 		int result = adapter_driver->quit();
 		if (result != ERROR_OK)
 			LOG_ERROR("failed: %d", result);
@@ -175,7 +246,8 @@ static int adapter_set_speed(int speed)
 	return is_adapter_initialized() ? adapter_driver->speed(speed) : ERROR_OK;
 }
 
-int adapter_config_khz(unsigned int khz)
+/** Attempt to configure the adapter for the specified kHz. */
+static int adapter_config_khz(unsigned int khz)
 {
 	LOG_DEBUG("handle adapter khz");
 	adapter_config.clock_mode = CLOCK_MODE_KHZ;
@@ -305,71 +377,66 @@ done:
 	return equal;
 }
 
-static int jim_adapter_name(Jim_Interp *interp, int argc, Jim_Obj * const *argv)
+COMMAND_HANDLER(handle_adapter_name)
 {
-	struct jim_getopt_info goi;
-	jim_getopt_setup(&goi, interp, argc-1, argv + 1);
-
-	/* return the name of the interface */
+	/* return the name of the adapter driver */
 	/* TCL code might need to know the exact type... */
 	/* FUTURE: we allow this as a means to "set" the interface. */
-	if (goi.argc != 0) {
-		Jim_WrongNumArgs(goi.interp, 1, goi.argv-1, "(no params)");
-		return JIM_ERR;
-	}
-	const char *name = adapter_driver ? adapter_driver->name : NULL;
-	Jim_SetResultString(goi.interp, name ? name : "undefined", -1);
-	return JIM_OK;
+
+	if (CMD_ARGC != 0)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	command_print(CMD, "%s", adapter_driver ? adapter_driver->name : "undefined");
+
+	return ERROR_OK;
 }
 
-COMMAND_HANDLER(adapter_transports_command)
+COMMAND_HANDLER(dump_adapter_driver_list)
 {
-	char **transports;
-	int retval;
-
-	retval = CALL_COMMAND_HANDLER(transport_list_parse, &transports);
-	if (retval != ERROR_OK)
-		return retval;
-
-	retval = allow_transports(CMD_CTX, (const char **)transports);
-
-	if (retval != ERROR_OK) {
-		for (unsigned i = 0; transports[i]; i++)
-			free(transports[i]);
-		free(transports);
+	int max_len = 0;
+	for (unsigned int i = 0; adapter_drivers[i]; i++) {
+		int len = strlen(adapter_drivers[i]->name);
+		if (max_len < len)
+			max_len = len;
 	}
-	return retval;
+
+	for (unsigned int i = 0; adapter_drivers[i]; i++) {
+		const char *name = adapter_drivers[i]->name;
+		unsigned int transport_ids = adapter_drivers[i]->transport_ids;
+
+		command_print_sameline(CMD, "%-*s {", max_len, name);
+		for (unsigned int j = BIT(0); j & TRANSPORT_VALID_MASK; j <<= 1)
+			if (j & transport_ids)
+				command_print_sameline(CMD, " %s", transport_name(j));
+		command_print(CMD, " }");
+	}
+
+	return ERROR_OK;
 }
 
 COMMAND_HANDLER(handle_adapter_list_command)
 {
-	if (strcmp(CMD_NAME, "list") == 0 && CMD_ARGC > 0)
+	if (CMD_ARGC)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
-	command_print(CMD, "The following debug adapters are available:");
-	for (unsigned i = 0; adapter_drivers[i]; i++) {
-		const char *name = adapter_drivers[i]->name;
-		command_print(CMD, "%u: %s", i + 1, name);
-	}
-
-	return ERROR_OK;
+	return CALL_COMMAND_HANDLER(dump_adapter_driver_list);
 }
 
 COMMAND_HANDLER(handle_adapter_driver_command)
 {
 	int retval;
 
-	/* check whether the interface is already configured */
+	/* check whether the adapter driver is already configured */
 	if (adapter_driver) {
-		LOG_WARNING("Interface already configured, ignoring");
+		LOG_WARNING("Adapter driver already configured, ignoring");
 		return ERROR_OK;
 	}
 
-	/* interface name is a mandatory argument */
-	if (CMD_ARGC != 1 || CMD_ARGV[0][0] == '\0')
+	/* adapter driver name is a mandatory argument */
+	if (CMD_ARGC != 1)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
-	for (unsigned i = 0; adapter_drivers[i]; i++) {
+	for (unsigned int i = 0; adapter_drivers[i]; i++) {
 		if (strcmp(CMD_ARGV[0], adapter_drivers[i]->name) != 0)
 			continue;
 
@@ -381,15 +448,17 @@ COMMAND_HANDLER(handle_adapter_driver_command)
 
 		adapter_driver = adapter_drivers[i];
 
-		return allow_transports(CMD_CTX, adapter_driver->transports);
+		return allow_transports(CMD_CTX, adapter_driver->transport_ids,
+			adapter_driver->transport_preferred_id);
 	}
 
-	/* no valid interface was found (i.e. the configuration option,
-	 * didn't match one of the compiled-in interfaces
+	/* no valid adapter driver was found (i.e. the configuration option,
+	 * didn't match one of the compiled-in drivers
 	 */
-	LOG_ERROR("The specified debug interface was not found (%s)",
+	LOG_ERROR("The specified adapter driver was not found (%s)",
 				CMD_ARGV[0]);
-	CALL_COMMAND_HANDLER(handle_adapter_list_command);
+	command_print(CMD, "The following adapter drivers are available:");
+	CALL_COMMAND_HANDLER(dump_adapter_driver_list);
 	return ERROR_JTAG_INVALID_INTERFACE;
 }
 
@@ -532,6 +601,8 @@ next:
 		old_cfg &= ~mask;
 		new_cfg |= old_cfg;
 		jtag_set_reset_config(new_cfg);
+		sync_adapter_reset_with_gpios();
+
 	} else
 		new_cfg = jtag_get_reset_config();
 
@@ -615,7 +686,7 @@ COMMAND_HANDLER(handle_adapter_srst_delay_command)
 	if (CMD_ARGC > 1)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	if (CMD_ARGC == 1) {
-		unsigned delay;
+		unsigned int delay;
 		COMMAND_PARSE_NUMBER(uint, CMD_ARGV[0], delay);
 
 		jtag_set_nsrst_delay(delay);
@@ -629,7 +700,7 @@ COMMAND_HANDLER(handle_adapter_srst_pulse_width_command)
 	if (CMD_ARGC > 1)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	if (CMD_ARGC == 1) {
-		unsigned width;
+		unsigned int width;
 		COMMAND_PARSE_NUMBER(uint, CMD_ARGV[0], width);
 
 		jtag_set_nsrst_assert_width(width);
@@ -645,7 +716,7 @@ COMMAND_HANDLER(handle_adapter_speed_command)
 
 	int retval = ERROR_OK;
 	if (CMD_ARGC == 1) {
-		unsigned khz = 0;
+		unsigned int khz = 0;
 		COMMAND_PARSE_NUMBER(uint, CMD_ARGV[0], khz);
 
 		retval = adapter_config_khz(khz);
@@ -762,6 +833,219 @@ COMMAND_HANDLER(handle_adapter_reset_de_assert)
 						  (srst == VALUE_DEASSERT) ? SRST_DEASSERT : SRST_ASSERT);
 }
 
+static int get_gpio_index(const char *signal_name)
+{
+	for (int i = 0; i < ADAPTER_GPIO_IDX_NUM; ++i) {
+		if (strcmp(gpio_map[i].name, signal_name) == 0)
+			return i;
+	}
+	return -1;
+}
+
+static COMMAND_HELPER(helper_adapter_gpio_print_config, enum adapter_gpio_config_index gpio_idx)
+{
+	struct adapter_gpio_config *gpio_config = &adapter_config.gpios[gpio_idx];
+	const char *active_state = gpio_config->active_low ? "low" : "high";
+	const char *dir = "";
+	const char *drive = "";
+	const char *pull = "";
+	const char *init_state = "";
+
+	if (gpio_config->gpio_num == ADAPTER_GPIO_NOT_SET) {
+		command_print(CMD, "adapter gpio %s: not configured", gpio_map[gpio_idx].name);
+		return ERROR_OK;
+	}
+
+	switch (gpio_map[gpio_idx].direction) {
+	case ADAPTER_GPIO_DIRECTION_INPUT:
+		dir = "input";
+		break;
+	case ADAPTER_GPIO_DIRECTION_OUTPUT:
+		dir = "output";
+		break;
+	case ADAPTER_GPIO_DIRECTION_BIDIRECTIONAL:
+		dir = "bidirectional";
+		break;
+	}
+
+	if (gpio_map[gpio_idx].permit_drive_option) {
+		switch (gpio_config->drive) {
+		case ADAPTER_GPIO_DRIVE_MODE_PUSH_PULL:
+			drive = ", push-pull";
+			break;
+		case ADAPTER_GPIO_DRIVE_MODE_OPEN_DRAIN:
+			drive = ", open-drain";
+			break;
+		case ADAPTER_GPIO_DRIVE_MODE_OPEN_SOURCE:
+			drive = ", open-source";
+			break;
+		}
+	}
+
+	switch (gpio_config->pull) {
+	case ADAPTER_GPIO_PULL_NONE:
+		pull = ", pull-none";
+		break;
+	case ADAPTER_GPIO_PULL_UP:
+		pull = ", pull-up";
+		break;
+	case ADAPTER_GPIO_PULL_DOWN:
+		pull = ", pull-down";
+		break;
+	}
+
+	if (gpio_map[gpio_idx].permit_init_state_option) {
+		switch (gpio_config->init_state) {
+		case ADAPTER_GPIO_INIT_STATE_INACTIVE:
+			init_state = ", init-state inactive";
+			break;
+		case ADAPTER_GPIO_INIT_STATE_ACTIVE:
+			init_state = ", init-state active";
+			break;
+		case ADAPTER_GPIO_INIT_STATE_INPUT:
+			init_state = ", init-state input";
+			break;
+		}
+	}
+
+	command_print(CMD, "adapter gpio %s (%s): num %u, chip %d, active-%s%s%s%s",
+		gpio_map[gpio_idx].name, dir, gpio_config->gpio_num, (int)gpio_config->chip_num, active_state,
+		drive, pull, init_state);
+
+	return ERROR_OK;
+}
+
+COMMAND_HANDLER(helper_adapter_gpio_print_all_configs)
+{
+	for (int i = 0; i < ADAPTER_GPIO_IDX_NUM; ++i)
+		CALL_COMMAND_HANDLER(helper_adapter_gpio_print_config, i);
+	return ERROR_OK;
+}
+
+COMMAND_HANDLER(adapter_gpio_config_handler)
+{
+	unsigned int i = 1;
+	struct adapter_gpio_config *gpio_config;
+
+	adapter_driver_gpios_init();
+
+	if (CMD_ARGC == 0) {
+		CALL_COMMAND_HANDLER(helper_adapter_gpio_print_all_configs);
+		return ERROR_OK;
+	}
+
+	int gpio_idx = get_gpio_index(CMD_ARGV[0]);
+	if (gpio_idx == -1) {
+		LOG_ERROR("adapter has no gpio named %s", CMD_ARGV[0]);
+		return ERROR_COMMAND_SYNTAX_ERROR;
+	}
+
+	if (CMD_ARGC == 1) {
+		CALL_COMMAND_HANDLER(helper_adapter_gpio_print_config, gpio_idx);
+		return ERROR_OK;
+	}
+
+	gpio_config = &adapter_config.gpios[gpio_idx];
+	while (i < CMD_ARGC) {
+		LOG_DEBUG("Processing %s", CMD_ARGV[i]);
+
+		if (isdigit(*CMD_ARGV[i])) {
+			COMMAND_PARSE_NUMBER(uint, CMD_ARGV[i], gpio_config->gpio_num);
+			++i;
+			continue;
+		}
+
+		if (strcmp(CMD_ARGV[i], "-chip") == 0) {
+			if (CMD_ARGC - i < 2) {
+				LOG_ERROR("-chip option requires a parameter");
+				return ERROR_FAIL;
+			}
+			LOG_DEBUG("-chip arg is %s", CMD_ARGV[i + 1]);
+			COMMAND_PARSE_NUMBER(uint, CMD_ARGV[i + 1], gpio_config->chip_num);
+			i += 2;
+			continue;
+		}
+
+		if (strcmp(CMD_ARGV[i], "-active-high") == 0) {
+			++i;
+			gpio_config->active_low = false;
+			continue;
+		}
+		if (strcmp(CMD_ARGV[i], "-active-low") == 0) {
+			++i;
+			gpio_config->active_low = true;
+			continue;
+		}
+
+		if (gpio_map[gpio_idx].permit_drive_option) {
+			if (strcmp(CMD_ARGV[i], "-push-pull") == 0) {
+				++i;
+				gpio_config->drive = ADAPTER_GPIO_DRIVE_MODE_PUSH_PULL;
+				continue;
+			}
+			if (strcmp(CMD_ARGV[i], "-open-drain") == 0) {
+				++i;
+				gpio_config->drive = ADAPTER_GPIO_DRIVE_MODE_OPEN_DRAIN;
+				continue;
+			}
+			if (strcmp(CMD_ARGV[i], "-open-source") == 0) {
+				++i;
+				gpio_config->drive = ADAPTER_GPIO_DRIVE_MODE_OPEN_SOURCE;
+				continue;
+			}
+		}
+
+		if (strcmp(CMD_ARGV[i], "-pull-none") == 0) {
+			++i;
+			gpio_config->pull = ADAPTER_GPIO_PULL_NONE;
+			continue;
+		}
+		if (strcmp(CMD_ARGV[i], "-pull-up") == 0) {
+			++i;
+			gpio_config->pull = ADAPTER_GPIO_PULL_UP;
+			continue;
+		}
+		if (strcmp(CMD_ARGV[i], "-pull-down") == 0) {
+			++i;
+			gpio_config->pull = ADAPTER_GPIO_PULL_DOWN;
+			continue;
+		}
+
+		if (gpio_map[gpio_idx].permit_init_state_option) {
+			if (strcmp(CMD_ARGV[i], "-init-inactive") == 0) {
+				++i;
+				gpio_config->init_state = ADAPTER_GPIO_INIT_STATE_INACTIVE;
+				continue;
+			}
+			if (strcmp(CMD_ARGV[i], "-init-active") == 0) {
+				++i;
+				gpio_config->init_state = ADAPTER_GPIO_INIT_STATE_ACTIVE;
+				continue;
+			}
+
+			if (gpio_map[gpio_idx].direction == ADAPTER_GPIO_DIRECTION_BIDIRECTIONAL &&
+					strcmp(CMD_ARGV[i], "-init-input") == 0) {
+				++i;
+				gpio_config->init_state = ADAPTER_GPIO_INIT_STATE_INPUT;
+				continue;
+			}
+		}
+
+		LOG_ERROR("illegal option for adapter %s %s: %s",
+				CMD_NAME, gpio_map[gpio_idx].name, CMD_ARGV[i]);
+		return ERROR_COMMAND_SYNTAX_ERROR;
+	}
+
+	/* Force swdio_dir init state to be compatible with swdio init state */
+	if (gpio_idx == ADAPTER_GPIO_IDX_SWDIO)
+		adapter_config.gpios[ADAPTER_GPIO_IDX_SWDIO_DIR].init_state =
+		(gpio_config->init_state == ADAPTER_GPIO_INIT_STATE_INPUT) ?
+		ADAPTER_GPIO_INIT_STATE_INACTIVE :
+		ADAPTER_GPIO_INIT_STATE_ACTIVE;
+
+	return ERROR_OK;
+}
+
 #ifdef HAVE_LIBUSB_GET_PORT_NUMBERS
 COMMAND_HANDLER(handle_usb_location_command)
 {
@@ -840,9 +1124,10 @@ static const struct command_registration adapter_command_handlers[] = {
 	{
 		.name = "name",
 		.mode = COMMAND_ANY,
-		.jim_handler = jim_adapter_name,
+		.handler = handle_adapter_name,
 		.help = "Returns the name of the currently "
 			"selected adapter (driver)",
+		.usage = "",
 	},
 	{
 		.name = "srst",
@@ -850,13 +1135,6 @@ static const struct command_registration adapter_command_handlers[] = {
 		.help = "srst adapter command group",
 		.usage = "",
 		.chain = adapter_srst_command_handlers,
-	},
-	{
-		.name = "transports",
-		.handler = adapter_transports_command,
-		.mode = COMMAND_CONFIG,
-		.help = "Declare transports the adapter supports.",
-		.usage = "transport ...",
 	},
 	{
 		.name = "usb",
@@ -878,6 +1156,19 @@ static const struct command_registration adapter_command_handlers[] = {
 		.mode = COMMAND_EXEC,
 		.help = "Controls SRST and TRST lines.",
 		.usage = "|assert [srst|trst [deassert|assert srst|trst]]",
+	},
+	{
+		.name = "gpio",
+		.handler = adapter_gpio_config_handler,
+		.mode = COMMAND_CONFIG,
+		.help = "gpio adapter command group",
+		.usage = "[ tdo|tdi|tms|tck|trst|swdio|swdio_dir|swclk|srst|led"
+			"[gpio_number] "
+			"[-chip chip_number] "
+			"[-active-high|-active-low] "
+			"[-push-pull|-open-drain|-open-source] "
+			"[-pull-none|-pull-up|-pull-down]"
+			"[-init-inactive|-init-active|-init-input] ]",
 	},
 	COMMAND_REGISTRATION_DONE
 };
@@ -914,4 +1205,15 @@ static const struct command_registration interface_command_handlers[] = {
 int adapter_register_commands(struct command_context *ctx)
 {
 	return register_commands(ctx, NULL, interface_command_handlers);
+}
+
+const char *adapter_gpio_get_name(enum adapter_gpio_config_index idx)
+{
+	return gpio_map[idx].name;
+}
+
+/* Allow drivers access to the GPIO configuration */
+const struct adapter_gpio_config *adapter_gpio_get_config(void)
+{
+	return adapter_config.gpios;
 }

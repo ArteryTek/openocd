@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2010 by Oleksandr Tymoshenko <gonzo@bluezbox.com>       *
@@ -300,8 +300,8 @@ static int avr32_ap7k_deassert_reset(struct target *target)
 	return ERROR_OK;
 }
 
-static int avr32_ap7k_resume(struct target *target, int current,
-	target_addr_t address, int handle_breakpoints, int debug_execution)
+static int avr32_ap7k_resume(struct target *target, bool current,
+	target_addr_t address, bool handle_breakpoints, bool debug_execution)
 {
 	struct avr32_ap7k_common *ap7k = target_to_ap7k(target);
 	struct breakpoint *breakpoint = NULL;
@@ -309,7 +309,7 @@ static int avr32_ap7k_resume(struct target *target, int current,
 	int retval;
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -321,7 +321,7 @@ static int avr32_ap7k_resume(struct target *target, int current,
 		*/
 	}
 
-	/* current = 1: continue on current pc, otherwise continue at <address> */
+	/* current = true: continue on current pc, otherwise continue at <address> */
 	if (!current) {
 #if 0
 		if (retval != ERROR_OK)
@@ -382,8 +382,8 @@ static int avr32_ap7k_resume(struct target *target, int current,
 	return ERROR_OK;
 }
 
-static int avr32_ap7k_step(struct target *target, int current,
-	target_addr_t address, int handle_breakpoints)
+static int avr32_ap7k_step(struct target *target, bool current,
+	target_addr_t address, bool handle_breakpoints)
 {
 	LOG_ERROR("%s: implement me", __func__);
 
@@ -431,7 +431,7 @@ static int avr32_ap7k_read_memory(struct target *target, target_addr_t address,
 		count);
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -471,7 +471,7 @@ static int avr32_ap7k_write_memory(struct target *target, target_addr_t address,
 		count);
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -510,7 +510,7 @@ static int avr32_ap7k_init_target(struct command_context *cmd_ctx,
 	return ERROR_OK;
 }
 
-static int avr32_ap7k_target_create(struct target *target, Jim_Interp *interp)
+static int avr32_ap7k_target_create(struct target *target)
 {
 	struct avr32_ap7k_common *ap7k = calloc(1, sizeof(struct
 			avr32_ap7k_common));

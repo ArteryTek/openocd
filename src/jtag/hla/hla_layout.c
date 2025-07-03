@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2011 by Mathias Kuester                                 *
@@ -18,11 +18,10 @@
 #include <helper/time_support.h>
 
 #include <jtag/hla/hla_layout.h>
-#include <jtag/hla/hla_tcl.h>
 #include <jtag/hla/hla_transport.h>
 #include <jtag/hla/hla_interface.h>
 
-static int hl_layout_open(struct hl_interface_s *adapter)
+static int hl_layout_open(struct hl_interface *adapter)
 {
 	int res;
 
@@ -40,7 +39,7 @@ static int hl_layout_open(struct hl_interface_s *adapter)
 	return ERROR_OK;
 }
 
-static int hl_layout_close(struct hl_interface_s *adapter)
+static int hl_layout_close(struct hl_interface *adapter)
 {
 	return ERROR_OK;
 }
@@ -79,7 +78,7 @@ const struct hl_layout *hl_layout_get_list(void)
 	return hl_layouts;
 }
 
-int hl_layout_init(struct hl_interface_s *adapter)
+int hl_layout_init(struct hl_interface *adapter)
 {
 	LOG_DEBUG("hl_layout_init");
 

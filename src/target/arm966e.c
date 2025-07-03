@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath                                    *
@@ -38,7 +38,7 @@ int arm966e_init_arch_info(struct target *target, struct arm966e_common *arm966e
 	return ERROR_OK;
 }
 
-static int arm966e_target_create(struct target *target, Jim_Interp *interp)
+static int arm966e_target_create(struct target *target)
 {
 	struct arm966e_common *arm966e = calloc(1, sizeof(struct arm966e_common));
 
@@ -174,8 +174,8 @@ COMMAND_HANDLER(arm966e_handle_cp15_command)
 		return retval;
 
 	if (target->state != TARGET_HALTED) {
-		command_print(CMD, "target must be stopped for \"%s\" command", CMD_NAME);
-		return ERROR_OK;
+		command_print(CMD, "Error: target must be stopped for \"%s\" command", CMD_NAME);
+		return ERROR_TARGET_NOT_HALTED;
 	}
 
 	/* one or more argument, access a single register (write if second argument is given */

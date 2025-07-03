@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /*
  * Spansion FM4 flash
@@ -107,7 +107,7 @@ static int fm4_flash_erase(struct flash_bank *bank, unsigned int first,
 	struct working_area *workarea;
 	struct reg_param reg_params[4];
 	struct armv7m_algorithm armv7m_algo;
-	unsigned i;
+	unsigned int i;
 	int retval;
 	const uint8_t erase_sector_code[] = {
 #include "../../../contrib/loaders/flash/fm4/erase.inc"
@@ -207,7 +207,7 @@ static int fm4_flash_write(struct flash_bank *bank, const uint8_t *buffer,
 	struct armv7m_algorithm armv7m_algo;
 	uint32_t halfword_count = DIV_ROUND_UP(byte_count, 2);
 	uint32_t result;
-	unsigned i;
+	unsigned int i;
 	int retval, retval2 = ERROR_OK;
 	const uint8_t write_block_code[] = {
 #include "../../../contrib/loaders/flash/fm4/write.inc"
@@ -688,24 +688,8 @@ FLASH_BANK_COMMAND_HANDLER(fm4_flash_bank_command)
 	return ret;
 }
 
-static const struct command_registration fm4_exec_command_handlers[] = {
-	COMMAND_REGISTRATION_DONE
-};
-
-static const struct command_registration fm4_command_handlers[] = {
-	{
-		.name = "fm4",
-		.mode = COMMAND_ANY,
-		.help = "fm4 flash command group",
-		.usage = "",
-		.chain = fm4_exec_command_handlers,
-	},
-	COMMAND_REGISTRATION_DONE
-};
-
 const struct flash_driver fm4_flash = {
 	.name = "fm4",
-	.commands = fm4_command_handlers,
 	.flash_bank_command = fm4_flash_bank_command,
 	.info = fm4_get_info_command,
 	.probe = fm4_probe,

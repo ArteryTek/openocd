@@ -19,8 +19,7 @@
 
 #include "armv7a.h"
 
-#define CORTEX_A_COMMON_MAGIC 0x411fc082
-#define CORTEX_A15_COMMON_MAGIC 0x413fc0f1
+#define CORTEX_A_COMMON_MAGIC 0x411fc082U
 
 #define CORTEX_A5_PARTNUM 0xc05
 #define CORTEX_A7_PARTNUM 0xc07
@@ -31,6 +30,9 @@
 #define CORTEX_A_MIDR_PARTNUM_SHIFT 4
 
 #define CPUDBG_CPUID	0xD00
+#define CPUDBG_CPUID_MASK      0xff00fff0
+#define CPUDBG_CPUID_CORTEX_R4 0x4100c140
+#define CPUDBG_CPUID_CORTEX_R5 0x4100c150
 #define CPUDBG_CTYPR	0xD04
 #define CPUDBG_TTYPR	0xD0C
 #define CPUDBG_LOCKACCESS 0xFB0
@@ -68,7 +70,9 @@ struct cortex_a_wrp {
 };
 
 struct cortex_a_common {
-	int common_magic;
+	unsigned int common_magic;
+
+	struct armv7a_common armv7a_common;
 
 	/* Context information */
 	uint32_t cpudbg_dscr;
@@ -97,9 +101,6 @@ struct cortex_a_common {
 
 	enum cortex_a_isrmasking_mode isrmasking_mode;
 	enum cortex_a_dacrfixup_mode dacrfixup_mode;
-
-	struct armv7a_common armv7a_common;
-
 };
 
 static inline struct cortex_a_common *

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2018 by Liviu Ionescu                                   *
@@ -141,16 +141,16 @@ enum semihosting_result riscv_semihosting(struct target *target, int *retval)
 		}
 	}
 
+	/* Resume right after the EBREAK 4 bytes instruction. */
+	*retval = riscv_set_register(target, GDB_REGNO_PC, pc + 4);
+	if (*retval != ERROR_OK)
+		return SEMIHOSTING_ERROR;
+
 	/*
 	 * Resume target if we are not waiting on a fileio
 	 * operation to complete.
 	 */
 	if (semihosting->is_resumable && !semihosting->hit_fileio) {
-		/* Resume right after the EBREAK 4 bytes instruction. */
-		*retval = riscv_set_register(target, GDB_REGNO_PC, pc + 4);
-		if (*retval != ERROR_OK)
-			return SEMIHOSTING_ERROR;
-
 		LOG_DEBUG("   -> HANDLED");
 		return SEMIHOSTING_HANDLED;
 	}

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* Copyright (C) 2021 by Andreas Fritiofson <andreas.fritiofson@gmail.com> */
 
 /*
@@ -12,7 +12,7 @@
 #include <assert.h>
 #include <helper/list.h>
 
-static LIST_HEAD(threads);
+static OOCD_LIST_HEAD(threads);
 
 struct thread {
 	int id;

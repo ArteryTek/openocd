@@ -148,7 +148,7 @@ enum {
 	PMCR,
 };
 
-#define X86_32_COMMON_MAGIC 0x86328632
+#define X86_32_COMMON_MAGIC 0x86328632U
 
 enum {
 	/* memory read/write */
@@ -200,7 +200,8 @@ struct swbp_mem_patch {
 #define NUM_PM_REGS		18 /* regs used in save/restore */
 
 struct x86_32_common {
-	uint32_t common_magic;
+	unsigned int common_magic;
+
 	void *arch_info;
 	enum x86_core_type core_type;
 	struct reg_cache *cache;
@@ -308,8 +309,6 @@ int x86_32_common_read_memory(struct target *t, target_addr_t addr,
 			uint32_t size, uint32_t count, uint8_t *buf);
 int x86_32_common_write_memory(struct target *t, target_addr_t addr,
 			uint32_t size, uint32_t count, const uint8_t *buf);
-int x86_32_common_read_io(struct target *t, uint32_t addr,
-			uint32_t size, uint8_t *buf);
 int x86_32_common_write_io(struct target *t, uint32_t addr,
 			uint32_t size, const uint8_t *buf);
 int x86_32_common_add_breakpoint(struct target *t, struct breakpoint *bp);

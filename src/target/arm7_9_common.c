@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath                                    *
@@ -184,7 +184,7 @@ static int arm7_9_set_breakpoint(struct target *target, struct breakpoint *break
 		breakpoint->type);
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -451,11 +451,12 @@ static int arm7_9_set_watchpoint(struct target *target, struct watchpoint *watch
 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
 	int rw_mask = 1;
 	uint32_t mask;
+	const uint32_t wp_data_mask = watchpoint->mask;
 
 	mask = watchpoint->length - 1;
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -469,8 +470,8 @@ static int arm7_9_set_watchpoint(struct target *target, struct watchpoint *watch
 			watchpoint->address);
 		embeddedice_set_reg(&arm7_9->eice_cache->reg_list[EICE_W0_ADDR_MASK], mask);
 		embeddedice_set_reg(&arm7_9->eice_cache->reg_list[EICE_W0_DATA_MASK],
-			watchpoint->mask);
-		if (watchpoint->mask != 0xffffffffu)
+			wp_data_mask);
+		if (wp_data_mask != (uint32_t)WATCHPOINT_IGNORE_DATA_VALUE_MASK)
 			embeddedice_set_reg(&arm7_9->eice_cache->reg_list[EICE_W0_DATA_VALUE],
 				watchpoint->value);
 		embeddedice_set_reg(&arm7_9->eice_cache->reg_list[EICE_W0_CONTROL_MASK],
@@ -488,8 +489,8 @@ static int arm7_9_set_watchpoint(struct target *target, struct watchpoint *watch
 			watchpoint->address);
 		embeddedice_set_reg(&arm7_9->eice_cache->reg_list[EICE_W1_ADDR_MASK], mask);
 		embeddedice_set_reg(&arm7_9->eice_cache->reg_list[EICE_W1_DATA_MASK],
-			watchpoint->mask);
-		if (watchpoint->mask != 0xffffffffu)
+			wp_data_mask);
+		if (wp_data_mask != (uint32_t)WATCHPOINT_IGNORE_DATA_VALUE_MASK)
 			embeddedice_set_reg(&arm7_9->eice_cache->reg_list[EICE_W1_DATA_VALUE],
 				watchpoint->value);
 		embeddedice_set_reg(&arm7_9->eice_cache->reg_list[EICE_W1_CONTROL_MASK],
@@ -524,7 +525,7 @@ static int arm7_9_unset_watchpoint(struct target *target, struct watchpoint *wat
 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -1259,7 +1260,7 @@ static int arm7_9_debug_entry(struct target *target)
 		return retval;
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -1390,7 +1391,7 @@ static int arm7_9_full_context(struct target *target)
 	LOG_DEBUG("-");
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -1506,7 +1507,7 @@ static int arm7_9_restore_context(struct target *target)
 	LOG_DEBUG("-");
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -1553,7 +1554,6 @@ static int arm7_9_restore_context(struct target *target)
 
 		if (dirty) {
 			uint32_t mask = 0x0;
-			int num_regs = 0;
 			uint32_t regs[16];
 
 			if (mode_change) {
@@ -1576,7 +1576,6 @@ static int arm7_9_restore_context(struct target *target)
 				if (reg->dirty) {
 					regs[j] = buf_get_u32(reg->value, 0, 32);
 					mask |= 1 << j;
-					num_regs++;
 					reg->dirty = false;
 					reg->valid = true;
 					LOG_DEBUG("writing register %i mode %s "
@@ -1698,10 +1697,10 @@ static void arm7_9_enable_breakpoints(struct target *target)
 }
 
 int arm7_9_resume(struct target *target,
-	int current,
+	bool current,
 	target_addr_t address,
-	int handle_breakpoints,
-	int debug_execution)
+	bool handle_breakpoints,
+	bool debug_execution)
 {
 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
 	struct arm *arm = &arm7_9->arm;
@@ -1711,14 +1710,14 @@ int arm7_9_resume(struct target *target,
 	LOG_DEBUG("-");
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
 	if (!debug_execution)
 		target_free_all_working_areas(target);
 
-	/* current = 1: continue on current pc, otherwise continue at <address> */
+	/* current = true: continue on current pc, otherwise continue at <address> */
 	if (!current)
 		buf_set_u32(arm->pc->value, 0, 32, address);
 
@@ -1901,7 +1900,8 @@ void arm7_9_disable_eice_step(struct target *target)
 	embeddedice_store_reg(&arm7_9->eice_cache->reg_list[EICE_W1_CONTROL_VALUE]);
 }
 
-int arm7_9_step(struct target *target, int current, target_addr_t address, int handle_breakpoints)
+int arm7_9_step(struct target *target, bool current, target_addr_t address,
+		bool handle_breakpoints)
 {
 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
 	struct arm *arm = &arm7_9->arm;
@@ -1909,11 +1909,11 @@ int arm7_9_step(struct target *target, int current, target_addr_t address, int h
 	int err, retval;
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
-	/* current = 1: continue on current pc, otherwise continue at <address> */
+	/* current = true: continue on current pc, otherwise continue at <address> */
 	if (!current)
 		buf_set_u32(arm->pc->value, 0, 32, address);
 
@@ -2120,7 +2120,7 @@ int arm7_9_read_memory(struct target *target,
 		address, size, count);
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -2293,7 +2293,7 @@ int arm7_9_write_memory(struct target *target,
 #endif
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -2520,7 +2520,7 @@ static const uint8_t *dcc_buffer;
 
 static int arm7_9_dcc_completion(struct target *target,
 	uint32_t exit_point,
-	int timeout_ms,
+	unsigned int timeout_ms,
 	void *arch_info)
 {
 	int retval = ERROR_OK;

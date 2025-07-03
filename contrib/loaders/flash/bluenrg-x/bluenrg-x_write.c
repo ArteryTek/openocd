@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /* To be built with arm-none-eabi-gcc -c -mthumb -mcpu=cortex-m0 -O3 bluenrgx.c */
 /* Then postprocess output of command "arm-none-eabi-objdump -d bluenrgx.o" to make a C array of bytes */
 
@@ -50,7 +52,7 @@ static inline __attribute__((always_inline)) uint32_t flashWrite(uint32_t addres
 		/* Clear the IRQ flags */
 		*((volatile uint32_t *)(flash_regs_base + FLASH_REG_IRQRAW)) = 0x0000003F;
 		/* Load the flash address to write */
-		*((volatile uint32_t *)(flash_regs_base + FLASH_REG_ADDRESS)) = (uint16_t)((address + index - MFB_BOTTOM) >> 2);
+		*((volatile uint32_t *)(flash_regs_base + FLASH_REG_ADDRESS)) = (uint32_t)((address + index - MFB_BOTTOM) >> 2);
 		/* Prepare and load the data to flash */
 		*((volatile uint32_t *)(flash_regs_base + FLASH_REG_DATA0)) = flash_word[0];
 		*((volatile uint32_t *)(flash_regs_base + FLASH_REG_DATA1)) = flash_word[1];

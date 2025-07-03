@@ -1,20 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Espressif USB to Jtag adapter                                         *
  *   Copyright (C) 2020 Espressif Systems (Shanghai) Co. Ltd.              *
- *   Author: Jeroen Domburg <jeroen@espressif.com>                         *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -27,8 +15,6 @@
 #include <helper/bits.h>
 #include "bitq.h"
 #include "libusb_helper.h"
-
-#define __packed __attribute__((packed))
 
 /*
 Holy Crap, it's protocol documentation, and it's even vendor-provided!
@@ -122,7 +108,7 @@ descriptor.
 struct jtag_proto_caps_hdr {
 	uint8_t proto_ver;	/* Protocol version. Expects JTAG_PROTO_CAPS_VER for now. */
 	uint8_t length;	/* of this plus any following descriptors */
-} __packed;
+} __attribute__((packed));
 
 /* start of the descriptor headers */
 #define JTAG_BUILTIN_DESCR_START_OFF            0	/* Devices with builtin usb jtag */
@@ -145,7 +131,7 @@ of caps header to assume this. If no such caps exist, assume a minimum (in) buff
 struct jtag_gen_hdr {
 	uint8_t type;
 	uint8_t length;
-} __packed;
+} __attribute__((packed));
 
 struct jtag_proto_caps_speed_apb {
 	uint8_t type;					/* Type, always JTAG_PROTO_CAPS_SPEED_APB_TYPE */
@@ -153,7 +139,7 @@ struct jtag_proto_caps_speed_apb {
 	uint8_t apb_speed_10khz[2];		/* ABP bus speed, in 10KHz increments. Base speed is half this. */
 	uint8_t div_min[2];				/* minimum divisor (to base speed), inclusive */
 	uint8_t div_max[2];				/* maximum divisor (to base speed), inclusive */
-} __packed;
+} __attribute__((packed));
 
 #define JTAG_PROTO_CAPS_DATA_LEN                255
 #define JTAG_PROTO_CAPS_SPEED_APB_TYPE          1
@@ -501,7 +487,7 @@ static int esp_usb_jtag_init(void)
 	bitq_interface->in_rdy = esp_usb_jtag_in_rdy;
 	bitq_interface->in = esp_usb_jtag_in;
 
-	int r = jtag_libusb_open(vids, pids, &priv->usb_device, NULL);
+	int r = jtag_libusb_open(vids, pids, NULL, &priv->usb_device, NULL);
 	if (r != ERROR_OK) {
 		LOG_ERROR("esp_usb_jtag: could not find or open device!");
 		goto out;
@@ -520,11 +506,13 @@ static int esp_usb_jtag_init(void)
 	 * 1- With the minimum size required to get to know the total length of that struct,
 	 * 2- Then exactly the length of that struct. */
 	uint8_t jtag_caps_desc[JTAG_PROTO_CAPS_DATA_LEN];
-	int jtag_caps_read_len = jtag_libusb_control_transfer(priv->usb_device,
+	int jtag_caps_read_len;
+	r = jtag_libusb_control_transfer(priv->usb_device,
 		LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_STANDARD | LIBUSB_RECIPIENT_DEVICE,
 		LIBUSB_REQUEST_GET_DESCRIPTOR, esp_usb_jtag_caps, 0,
-		(char *)jtag_caps_desc, JTAG_PROTO_CAPS_DATA_LEN, LIBUSB_TIMEOUT_MS);
-	if (jtag_caps_read_len <= 0) {
+		(char *)jtag_caps_desc, JTAG_PROTO_CAPS_DATA_LEN, LIBUSB_TIMEOUT_MS,
+		&jtag_caps_read_len);
+	if (r != ERROR_OK) {
 		LOG_ERROR("esp_usb_jtag: could not retrieve jtag_caps descriptor!");
 		goto out;
 	}
@@ -594,7 +582,8 @@ static int esp_usb_jtag_init(void)
 		0,
 		NULL,
 		0,
-		LIBUSB_TIMEOUT_MS);
+		LIBUSB_TIMEOUT_MS,
+		NULL);
 
 	return ERROR_OK;
 
@@ -651,7 +640,7 @@ static int esp_usb_jtag_speed(int divisor)
 
 	LOG_DEBUG("esp_usb_jtag: setting divisor %d", divisor);
 	jtag_libusb_control_transfer(priv->usb_device,
-		LIBUSB_REQUEST_TYPE_VENDOR, VEND_JTAG_SETDIV, divisor, 0, NULL, 0, LIBUSB_TIMEOUT_MS);
+		LIBUSB_REQUEST_TYPE_VENDOR, VEND_JTAG_SETDIV, divisor, 0, NULL, 0, LIBUSB_TIMEOUT_MS, NULL);
 
 	return ERROR_OK;
 }
@@ -662,8 +651,8 @@ COMMAND_HANDLER(esp_usb_jtag_tdo_cmd)
 	if (!priv->usb_device)
 		return ERROR_FAIL;
 	int r = jtag_libusb_control_transfer(priv->usb_device,
-		LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR, VEND_JTAG_GETTDO, 0, 0, &tdo, 1, LIBUSB_TIMEOUT_MS);
-	if (r < 1)
+		LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR, VEND_JTAG_GETTDO, 0, 0, &tdo, 1, LIBUSB_TIMEOUT_MS, NULL);
+	if (r != ERROR_OK)
 		return r;
 
 	command_print(CMD, "%d", tdo);
@@ -699,7 +688,7 @@ COMMAND_HANDLER(esp_usb_jtag_setio_cmd)
 		d |= VEND_JTAG_SETIO_SRST;
 
 	jtag_libusb_control_transfer(priv->usb_device,
-		0x40, VEND_JTAG_SETIO, d, 0, NULL, 0, LIBUSB_TIMEOUT_MS);
+		0x40, VEND_JTAG_SETIO, d, 0, NULL, 0, LIBUSB_TIMEOUT_MS, NULL);
 
 	return ERROR_OK;
 }
@@ -795,7 +784,8 @@ static struct jtag_interface esp_usb_jtag_interface = {
 
 struct adapter_driver esp_usb_adapter_driver = {
 	.name = "esp_usb_jtag",
-	.transports = jtag_only,
+	.transport_ids = TRANSPORT_JTAG,
+	.transport_preferred_id = TRANSPORT_JTAG,
 	.commands = esp_usb_jtag_commands,
 
 	.init = esp_usb_jtag_init,
