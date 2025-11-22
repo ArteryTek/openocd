@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath                                    *
@@ -250,18 +250,6 @@ static int efm32x_read_info(struct flash_bank *bank)
 	struct efm32_info *efm32_info = &(efm32x_info->info);
 
 	memset(efm32_info, 0, sizeof(struct efm32_info));
-
-	const struct cortex_m_common *cortex_m = target_to_cm(bank->target);
-
-	switch (cortex_m->core_info->partno) {
-	case CORTEX_M3_PARTNO:
-	case CORTEX_M4_PARTNO:
-	case CORTEX_M0P_PARTNO:
-		break;
-	default:
-		LOG_ERROR("Target is not Cortex-Mx Device");
-		return ERROR_FAIL;
-	}
 
 	ret = efm32x_get_flash_size(bank, &(efm32_info->flash_sz_kib));
 	if (ret != ERROR_OK)
@@ -1075,8 +1063,8 @@ static int efm32x_probe(struct flash_bank *bank)
 
 	LOG_INFO("detected part: %s Gecko, rev %d",
 			efm32_mcu_info->family_data->name, efm32_mcu_info->prod_rev);
-	LOG_INFO("flash size = %dkbytes", efm32_mcu_info->flash_sz_kib);
-	LOG_INFO("flash page size = %dbytes", efm32_mcu_info->page_size);
+	LOG_INFO("flash size = %d KiB", efm32_mcu_info->flash_sz_kib);
+	LOG_INFO("flash page size = %d B", efm32_mcu_info->page_size);
 
 	assert(efm32_mcu_info->page_size != 0);
 

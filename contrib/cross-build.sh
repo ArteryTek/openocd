@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # This is an example of how to do a cross-build of OpenOCD using pkg-config.
 # Cross-building with pkg-config is deceptively hard and most guides and
@@ -40,12 +41,16 @@ WORK_DIR=$PWD
 : ${HIDAPI_SRC:=/path/to/hidapi}
 : ${LIBFTDI_SRC:=/path/to/libftdi}
 : ${CAPSTONE_SRC:=/path/to/capstone}
+: ${LIBJAYLINK_SRC:=/path/to/libjaylink}
+: ${JIMTCL_SRC:=/path/to/jimtcl}
 
 OPENOCD_SRC=`readlink -m $OPENOCD_SRC`
 LIBUSB1_SRC=`readlink -m $LIBUSB1_SRC`
 HIDAPI_SRC=`readlink -m $HIDAPI_SRC`
 LIBFTDI_SRC=`readlink -m $LIBFTDI_SRC`
 CAPSTONE_SRC=`readlink -m $CAPSTONE_SRC`
+LIBJAYLINK_SRC=`readlink -m $LIBJAYLINK_SRC`
+JIMTCL_SRC=`readlink -m $JIMTCL_SRC`
 
 HOST_TRIPLET=$1
 BUILD_DIR=$WORK_DIR/$HOST_TRIPLET-build
@@ -53,6 +58,8 @@ LIBUSB1_BUILD_DIR=$BUILD_DIR/libusb1
 HIDAPI_BUILD_DIR=$BUILD_DIR/hidapi
 LIBFTDI_BUILD_DIR=$BUILD_DIR/libftdi
 CAPSTONE_BUILD_DIR=$BUILD_DIR/capstone
+LIBJAYLINK_BUILD_DIR=$BUILD_DIR/libjaylink
+JIMTCL_BUILD_DIR=$BUILD_DIR/jimtcl
 OPENOCD_BUILD_DIR=$BUILD_DIR/openocd
 
 ## Root of host file tree
@@ -157,6 +164,28 @@ libdir=${exec_prefix}/lib \
 includedir=${prefix}/include/capstone\n\n;' $CAPSTONE_PC_FILE
 fi
 
+# libjaylink build & install into sysroot
+if [ -d $LIBJAYLINK_SRC ] ; then
+  mkdir -p $LIBJAYLINK_BUILD_DIR
+  cd $LIBJAYLINK_BUILD_DIR
+  $LIBJAYLINK_SRC/configure --build=`$LIBJAYLINK_SRC/config.guess` --host=$HOST_TRIPLET \
+    --with-sysroot=$SYSROOT --prefix=$PREFIX \
+    $LIBJAYLINK_CONFIG
+  make -j $MAKE_JOBS
+  make install DESTDIR=$SYSROOT
+fi
+
+# jimtcl build & install into sysroot
+if [ -d $JIMTCL_SRC ] ; then
+  mkdir -p $JIMTCL_BUILD_DIR
+  cd $JIMTCL_BUILD_DIR
+  $JIMTCL_SRC/configure --host=$HOST_TRIPLET --prefix=$PREFIX \
+    $JIMTCL_CONFIG
+  make -j $MAKE_JOBS
+  # Running "make" does not create this file for static builds on Windows but "make install" still expects it
+  touch $JIMTCL_BUILD_DIR/build-jim-ext
+  make install DESTDIR=$SYSROOT
+fi
 
 # OpenOCD build & install into sysroot
 mkdir -p $OPENOCD_BUILD_DIR

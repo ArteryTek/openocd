@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2008 by Spencer Oliver                                  *
@@ -30,12 +30,14 @@ static int mips_m4k_set_breakpoint(struct target *target,
 		struct breakpoint *breakpoint);
 static int mips_m4k_unset_breakpoint(struct target *target,
 		struct breakpoint *breakpoint);
-static int mips_m4k_internal_restore(struct target *target, int current,
-		target_addr_t address, int handle_breakpoints,
-		int debug_execution);
+static int mips_m4k_internal_restore(struct target *target, bool current,
+		target_addr_t address, bool handle_breakpoints,
+		bool debug_execution);
 static int mips_m4k_halt(struct target *target);
 static int mips_m4k_bulk_write_memory(struct target *target, target_addr_t address,
 		uint32_t count, const uint8_t *buffer);
+static int mips_m4k_bulk_read_memory(struct target *target, target_addr_t address,
+		uint32_t count, uint8_t *buffer);
 
 static int mips_m4k_examine_debug_reason(struct target *target)
 {
@@ -98,17 +100,19 @@ static int mips_m4k_debug_entry(struct target *target)
 	/* attempt to find halt reason */
 	mips_m4k_examine_debug_reason(target);
 
+	mips32_cpu_probe(target);
+
 	mips32_read_config_regs(target);
 
 	/* default to mips32 isa, it will be changed below if required */
 	mips32->isa_mode = MIPS32_ISA_MIPS32;
 
 	/* other than mips32 only and isa bit set ? */
-	if (mips32->isa_imp && buf_get_u32(mips32->core_cache->reg_list[MIPS32_PC].value, 0, 1))
+	if (mips32->isa_imp && buf_get_u32(mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].value, 0, 1))
 		mips32->isa_mode = mips32->isa_imp == 2 ? MIPS32_ISA_MIPS16E : MIPS32_ISA_MMIPS32;
 
 	LOG_DEBUG("entered debug state at PC 0x%" PRIx32 ", target->state: %s",
-			buf_get_u32(mips32->core_cache->reg_list[MIPS32_PC].value, 0, 32),
+			buf_get_u32(mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].value, 0, 32),
 			target_state_name(target));
 
 	return ERROR_OK;
@@ -138,7 +142,7 @@ static int mips_m4k_halt_smp(struct target *target)
 			ret = mips_m4k_halt(curr);
 
 		if (ret != ERROR_OK) {
-			LOG_ERROR("halt failed target->coreid: %" PRId32, curr->coreid);
+			LOG_TARGET_ERROR(curr, "halt failed.");
 			retval = ret;
 		}
 	}
@@ -394,7 +398,8 @@ static int mips_m4k_single_step_core(struct target *target)
 	return ERROR_OK;
 }
 
-static int mips_m4k_restore_smp(struct target *target, uint32_t address, int handle_breakpoints)
+static int mips_m4k_restore_smp(struct target *target, uint32_t address,
+		bool handle_breakpoints)
 {
 	int retval = ERROR_OK;
 	struct target_list *head;
@@ -404,12 +409,12 @@ static int mips_m4k_restore_smp(struct target *target, uint32_t address, int han
 		struct target *curr = head->target;
 		if ((curr != target) && (curr->state != TARGET_RUNNING)) {
 			/*  resume current address , not in step mode */
-			ret = mips_m4k_internal_restore(curr, 1, address,
-						   handle_breakpoints, 0);
+			ret = mips_m4k_internal_restore(curr, true, address,
+						   handle_breakpoints, false);
 
 			if (ret != ERROR_OK) {
-				LOG_ERROR("target->coreid :%" PRId32 " failed to resume at address :0x%" PRIx32,
-						  curr->coreid, address);
+				LOG_TARGET_ERROR(curr, "failed to resume at address: 0x%" PRIx32,
+						address);
 				retval = ret;
 			}
 		}
@@ -417,8 +422,9 @@ static int mips_m4k_restore_smp(struct target *target, uint32_t address, int han
 	return retval;
 }
 
-static int mips_m4k_internal_restore(struct target *target, int current,
-		target_addr_t address, int handle_breakpoints, int debug_execution)
+static int mips_m4k_internal_restore(struct target *target, bool current,
+		target_addr_t address, bool handle_breakpoints,
+		bool debug_execution)
 {
 	struct mips32_common *mips32 = target_to_mips32(target);
 	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
@@ -436,21 +442,21 @@ static int mips_m4k_internal_restore(struct target *target, int current,
 		mips_m4k_enable_watchpoints(target);
 	}
 
-	/* current = 1: continue on current pc, otherwise continue at <address> */
+	/* current = true: continue on current pc, otherwise continue at <address> */
 	if (!current) {
 		mips_m4k_isa_filter(mips32->isa_imp, &address);
-		buf_set_u32(mips32->core_cache->reg_list[MIPS32_PC].value, 0, 32, address);
-		mips32->core_cache->reg_list[MIPS32_PC].dirty = true;
-		mips32->core_cache->reg_list[MIPS32_PC].valid = true;
+		buf_set_u32(mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].value, 0, 32, address);
+		mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].dirty = true;
+		mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].valid = true;
 	}
 
-	if ((mips32->isa_imp > 1) &&  debug_execution)	/* if more than one isa supported */
-		buf_set_u32(mips32->core_cache->reg_list[MIPS32_PC].value, 0, 1, mips32->isa_mode);
+	if (mips32->isa_imp > 1 && debug_execution)	/* if more than one isa supported */
+		buf_set_u32(mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].value, 0, 1, mips32->isa_mode);
 
 	if (!current)
 		resume_pc = address;
 	else
-		resume_pc = buf_get_u32(mips32->core_cache->reg_list[MIPS32_PC].value, 0, 32);
+		resume_pc = buf_get_u32(mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].value, 0, 32);
 
 	mips32_restore_context(target);
 
@@ -490,8 +496,8 @@ static int mips_m4k_internal_restore(struct target *target, int current,
 	return ERROR_OK;
 }
 
-static int mips_m4k_resume(struct target *target, int current,
-		target_addr_t address, int handle_breakpoints, int debug_execution)
+static int mips_m4k_resume(struct target *target, bool current,
+		target_addr_t address, bool handle_breakpoints, bool debug_execution)
 {
 	int retval = ERROR_OK;
 
@@ -517,8 +523,8 @@ static int mips_m4k_resume(struct target *target, int current,
 	return retval;
 }
 
-static int mips_m4k_step(struct target *target, int current,
-		target_addr_t address, int handle_breakpoints)
+static int mips_m4k_step(struct target *target, bool current,
+		target_addr_t address, bool handle_breakpoints)
 {
 	/* get pointers to arch-specific information */
 	struct mips32_common *mips32 = target_to_mips32(target);
@@ -530,18 +536,18 @@ static int mips_m4k_step(struct target *target, int current,
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
-	/* current = 1: continue on current pc, otherwise continue at <address> */
+	/* current = true: continue on current pc, otherwise continue at <address> */
 	if (!current) {
 		mips_m4k_isa_filter(mips32->isa_imp, &address);
-		buf_set_u32(mips32->core_cache->reg_list[MIPS32_PC].value, 0, 32, address);
-		mips32->core_cache->reg_list[MIPS32_PC].dirty = true;
-		mips32->core_cache->reg_list[MIPS32_PC].valid = true;
+		buf_set_u32(mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].value, 0, 32, address);
+		mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].dirty = true;
+		mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].valid = true;
 	}
 
 	/* the front-end may request us not to handle breakpoints */
 	if (handle_breakpoints) {
 		breakpoint = breakpoint_find(target,
-				buf_get_u32(mips32->core_cache->reg_list[MIPS32_PC].value, 0, 32));
+				buf_get_u32(mips32->core_cache->reg_list[MIPS32_REGLIST_C0_PC_INDEX].value, 0, 32));
 		if (breakpoint)
 			mips_m4k_unset_breakpoint(target, breakpoint);
 	}
@@ -900,7 +906,7 @@ static int mips_m4k_set_watchpoint(struct target *target,
 			LOG_ERROR("BUG: watchpoint->rw neither read, write nor access");
 	}
 
-	watchpoint->number = wp_num;
+	watchpoint_set(watchpoint, wp_num);
 	comparator_list[wp_num].used = 1;
 	comparator_list[wp_num].bp_value = watchpoint->address;
 
@@ -1021,6 +1027,12 @@ static int mips_m4k_read_memory(struct target *target, target_addr_t address,
 	if (((size == 4) && (address & 0x3u)) || ((size == 2) && (address & 0x1u)))
 		return ERROR_TARGET_UNALIGNED_ACCESS;
 
+	if (size == 4 && count > 32) {
+		int retval = mips_m4k_bulk_read_memory(target, address, count, buffer);
+		if (retval == ERROR_OK)
+			return ERROR_OK;
+		LOG_WARNING("Falling back to non-bulk read");
+	}
 	/* since we don't know if buffer is aligned, we allocate new mem that is always aligned */
 	void *t = NULL;
 
@@ -1146,7 +1158,7 @@ static int mips_m4k_init_arch_info(struct target *target,
 	return ERROR_OK;
 }
 
-static int mips_m4k_target_create(struct target *target, Jim_Interp *interp)
+static int mips_m4k_target_create(struct target *target)
 {
 	struct mips_m4k_common *mips_m4k = calloc(1, sizeof(struct mips_m4k_common));
 
@@ -1218,8 +1230,8 @@ static int mips_m4k_bulk_write_memory(struct target *target, target_addr_t addre
 
 	fast_data_area = mips32->fast_data_area;
 
-	if (address <= fast_data_area->address + fast_data_area->size &&
-			fast_data_area->address <= address + count) {
+	if (address < (fast_data_area->address + fast_data_area->size) &&
+			fast_data_area->address < (address + count)) {
 		LOG_ERROR("fast_data (" TARGET_ADDR_FMT ") is within write area "
 			  "(" TARGET_ADDR_FMT "-" TARGET_ADDR_FMT ").",
 			  fast_data_area->address, address, address + count);
@@ -1240,6 +1252,71 @@ static int mips_m4k_bulk_write_memory(struct target *target, target_addr_t addre
 
 	retval = mips32_pracc_fastdata_xfer(ejtag_info, mips32->fast_data_area, write_t, address,
 			count, t);
+
+	free(t);
+
+	if (retval != ERROR_OK)
+		LOG_ERROR("Fastdata access Failed");
+
+	return retval;
+}
+
+static int mips_m4k_bulk_read_memory(struct target *target, target_addr_t address,
+		uint32_t count, uint8_t *buffer)
+{
+	struct mips32_common *mips32 = target_to_mips32(target);
+	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+	struct working_area *fast_data_area;
+	int retval;
+	int write_t = 0;
+
+	LOG_DEBUG("address: " TARGET_ADDR_FMT ", count: 0x%8.8" PRIx32 "",
+			address, count);
+
+	/* check alignment */
+	if (address & 0x3u)
+		return ERROR_TARGET_UNALIGNED_ACCESS;
+
+	if (!mips32->fast_data_area) {
+		/* Get memory for block read handler
+		 * we preserve this area between calls and gain a speed increase
+		 * of about 3kb/sec when reading flash
+		 * this will be released/nulled by the system when the target is resumed or reset */
+		retval = target_alloc_working_area(target,
+				MIPS32_FASTDATA_HANDLER_SIZE,
+				&mips32->fast_data_area);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("No working area available");
+			return retval;
+		}
+
+		/* reset fastadata state so the algo get reloaded */
+		ejtag_info->fast_access_save = -1;
+	}
+
+	fast_data_area = mips32->fast_data_area;
+
+	if (address < (fast_data_area->address + fast_data_area->size) &&
+			fast_data_area->address < (address + count)) {
+		LOG_ERROR("fast_data (" TARGET_ADDR_FMT ") is within read area "
+				"(" TARGET_ADDR_FMT "-" TARGET_ADDR_FMT ").",
+				fast_data_area->address, address, address + count);
+		LOG_ERROR("Change work-area-phys or load_image address!");
+		return ERROR_FAIL;
+	}
+
+	/* mips32_pracc_fastdata_xfer requires uint32_t in host endianness, */
+	/* but byte array represents target endianness                      */
+	uint32_t *t = malloc(count * sizeof(uint32_t));
+	if (!t) {
+		LOG_ERROR("Out of memory");
+		return ERROR_FAIL;
+	}
+
+	retval = mips32_pracc_fastdata_xfer(ejtag_info, mips32->fast_data_area, write_t, address,
+			count, t);
+
+	target_buffer_set_u32_array(target, buffer, count, t);
 
 	free(t);
 
@@ -1322,7 +1399,7 @@ COMMAND_HANDLER(mips_m4k_handle_scan_delay_command)
 	if (CMD_ARGC == 1)
 		COMMAND_PARSE_NUMBER(uint, CMD_ARGV[0], ejtag_info->scan_delay);
 	else if (CMD_ARGC > 1)
-			return ERROR_COMMAND_SYNTAX_ERROR;
+		return ERROR_COMMAND_SYNTAX_ERROR;
 
 	command_print(CMD, "scan delay: %d nsec", ejtag_info->scan_delay);
 	if (ejtag_info->scan_delay >= MIPS32_SCAN_DELAY_LEGACY_MODE) {
@@ -1357,7 +1434,7 @@ static const struct command_registration mips_m4k_exec_command_handlers[] = {
 	COMMAND_REGISTRATION_DONE
 };
 
-const struct command_registration mips_m4k_command_handlers[] = {
+static const struct command_registration mips_m4k_command_handlers[] = {
 	{
 		.chain = mips32_command_handlers,
 	},

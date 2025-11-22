@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: BSD-2-Clause-Views */
+// SPDX-License-Identifier: BSD-2-Clause-Views
 
 /* Jim - A small embeddable Tcl interpreter
  *
@@ -21,6 +21,7 @@
 #endif
 
 #include "jim-nvp.h"
+#include <stdio.h>
 #include <string.h>
 
 int jim_get_nvp(Jim_Interp *interp,

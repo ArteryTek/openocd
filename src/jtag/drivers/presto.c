@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2007 by Pavel Chromy                                    *
@@ -528,7 +528,8 @@ static struct jtag_interface presto_interface = {
 
 struct adapter_driver presto_adapter_driver = {
 	.name = "presto",
-	.transports = jtag_only,
+	.transport_ids = TRANSPORT_JTAG,
+	.transport_preferred_id = TRANSPORT_JTAG,
 
 	.init = presto_jtag_init,
 	.quit = presto_jtag_quit,

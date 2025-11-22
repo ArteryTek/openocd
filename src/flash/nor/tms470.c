@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2007,2008 by Christopher Kilgour                        *
@@ -16,7 +16,7 @@
  * ---------------------------------------------------------------------- */
 
 struct tms470_flash_bank {
-	unsigned ordinal;
+	unsigned int ordinal;
 
 	/* device identification register */
 	uint32_t device_ident_reg;
@@ -239,17 +239,14 @@ static int tms470_read_part_info(struct flash_bank *bank)
 			break;
 
 		default:
-			LOG_WARNING("Could not identify part 0x%02x as a member of the TMS470 family.",
-					(unsigned)part_number);
+			LOG_WARNING("Could not identify part 0x%02" PRIx32 " as a member of the TMS470 family.",
+					part_number);
 			return ERROR_FLASH_OPERATION_FAILED;
 	}
 
 	/* turn off memory selects */
 	target_write_u32(target, 0xFFFFFFE4, 0x00000000);
 	target_write_u32(target, 0xFFFFFFE0, 0x00000000);
-
-	bank->chip_width = 32;
-	bank->bus_width = 32;
 
 	LOG_INFO("Identified %s, ver=%d, core=%s, nvmem=%s.",
 		part_name,
@@ -394,7 +391,7 @@ static int tms470_try_flash_keys(struct target *target, const uint32_t *key_set)
 	/* only perform the key match when 3VSTAT is clear */
 	target_read_u32(target, 0xFFE8BC0C, &fmmstat);
 	if (!(fmmstat & 0x08)) {
-		unsigned i;
+		unsigned int i;
 		uint32_t fmbptr, fmbac2, orig_fmregopt;
 
 		target_write_u32(target, 0xFFE8BC04, fmmstat & ~0x07);
@@ -458,7 +455,7 @@ static int tms470_unlock_flash(struct flash_bank *bank)
 {
 	struct target *target = bank->target;
 	const uint32_t *p_key_sets[5];
-	unsigned i, key_set_count;
+	unsigned int i, key_set_count;
 
 	if (keys_set) {
 		key_set_count = 5;

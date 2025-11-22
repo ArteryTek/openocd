@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2009-2011 by Mathias Kuester                            *
@@ -220,9 +220,9 @@ enum dsp563xx_reg_idx {
 };
 
 static const struct {
-	unsigned id;
+	unsigned int id;
 	const char *name;
-	unsigned bits;
+	unsigned int bits;
 	/* effective addressing mode encoding */
 	uint8_t eame;
 	uint32_t instr_mask;
@@ -880,7 +880,7 @@ static void dsp563xx_invalidate_x_context(struct target *target,
 	}
 }
 
-static int dsp563xx_target_create(struct target *target, Jim_Interp *interp)
+static int dsp563xx_target_create(struct target *target)
 {
 	struct dsp563xx_common *dsp563xx = calloc(1, sizeof(struct dsp563xx_common));
 
@@ -912,7 +912,7 @@ static int dsp563xx_examine(struct target *target)
 {
 	uint32_t chip;
 
-	if (target->tap->hasidcode == false) {
+	if (!target->tap->has_idcode) {
 		LOG_ERROR("no IDCODE present on device");
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
@@ -1115,10 +1115,10 @@ static int dsp563xx_halt(struct target *target)
 }
 
 static int dsp563xx_resume(struct target *target,
-	int current,
+	bool current,
 	target_addr_t address,
-	int handle_breakpoints,
-	int debug_execution)
+	bool handle_breakpoints,
+	bool debug_execution)
 {
 	int err;
 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
@@ -1132,10 +1132,10 @@ static int dsp563xx_resume(struct target *target,
 	if (current && dsp563xx->core_cache->reg_list[DSP563XX_REG_IDX_PC].dirty) {
 		dsp563xx_write_core_reg(target, DSP563XX_REG_IDX_PC);
 		address = dsp563xx->core_regs[DSP563XX_REG_IDX_PC];
-		current = 0;
+		current = false;
 	}
 
-	LOG_DEBUG("%s %08X %08X", __func__, current, (unsigned) address);
+	LOG_DEBUG("%s %08X %08" TARGET_PRIXADDR, __func__, current, address);
 
 	err = dsp563xx_restore_context(target);
 	if (err != ERROR_OK)
@@ -1172,9 +1172,9 @@ static int dsp563xx_resume(struct target *target,
 }
 
 static int dsp563xx_step_ex(struct target *target,
-	int current,
+	bool current,
 	uint32_t address,
-	int handle_breakpoints,
+	bool handle_breakpoints,
 	int steps)
 {
 	int err;
@@ -1196,10 +1196,10 @@ static int dsp563xx_step_ex(struct target *target,
 	if (current && dsp563xx->core_cache->reg_list[DSP563XX_REG_IDX_PC].dirty) {
 		dsp563xx_write_core_reg(target, DSP563XX_REG_IDX_PC);
 		address = dsp563xx->core_regs[DSP563XX_REG_IDX_PC];
-		current = 0;
+		current = false;
 	}
 
-	LOG_DEBUG("%s %08X %08X", __func__, current, (unsigned) address);
+	LOG_DEBUG("%s %08X %08" PRIX32, __func__, current, address);
 
 	err = dsp563xx_jtag_debug_request(target);
 	if (err != ERROR_OK)
@@ -1260,15 +1260,15 @@ static int dsp563xx_step_ex(struct target *target,
 			err = dsp563xx_once_reg_read(target->tap, 1, DSP563XX_ONCE_OPABFR, &dr_in);
 			if (err != ERROR_OK)
 				return err;
-			LOG_DEBUG("fetch: %08X", (unsigned) dr_in&0x00ffffff);
+			LOG_DEBUG("fetch: %08" PRIX32, dr_in & 0x00ffffff);
 			err = dsp563xx_once_reg_read(target->tap, 1, DSP563XX_ONCE_OPABDR, &dr_in);
 			if (err != ERROR_OK)
 				return err;
-			LOG_DEBUG("decode: %08X", (unsigned) dr_in&0x00ffffff);
+			LOG_DEBUG("decode: %08" PRIX32, dr_in & 0x00ffffff);
 			err = dsp563xx_once_reg_read(target->tap, 1, DSP563XX_ONCE_OPABEX, &dr_in);
 			if (err != ERROR_OK)
 				return err;
-			LOG_DEBUG("execute: %08X", (unsigned) dr_in&0x00ffffff);
+			LOG_DEBUG("execute: %08" PRIX32, dr_in & 0x00ffffff);
 
 			/* reset trace mode */
 			err = dsp563xx_once_reg_write(target->tap, 1, DSP563XX_ONCE_OSCR, 0x000000);
@@ -1288,15 +1288,15 @@ static int dsp563xx_step_ex(struct target *target,
 }
 
 static int dsp563xx_step(struct target *target,
-	int current,
+	bool current,
 	target_addr_t address,
-	int handle_breakpoints)
+	bool handle_breakpoints)
 {
 	int err;
 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -1359,7 +1359,7 @@ static int dsp563xx_deassert_reset(struct target *target)
 			 * reset vector and need 2 cycles to fill
 			 * the cache (fetch,decode,execute)
 			 */
-			err = dsp563xx_step_ex(target, 1, 0, 1, 1);
+			err = dsp563xx_step_ex(target, true, 0, true, 1);
 			if (err != ERROR_OK)
 				return err;
 		}
@@ -1374,14 +1374,14 @@ static int dsp563xx_run_algorithm(struct target *target,
 	int num_mem_params, struct mem_param *mem_params,
 	int num_reg_params, struct reg_param *reg_params,
 	target_addr_t entry_point, target_addr_t exit_point,
-	int timeout_ms, void *arch_info)
+	unsigned int timeout_ms, void *arch_info)
 {
 	int i;
 	int retval = ERROR_OK;
 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted (run target algo)");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -1419,7 +1419,7 @@ static int dsp563xx_run_algorithm(struct target *target,
 	}
 
 	/* exec */
-	retval = target_resume(target, 0, entry_point, 1, 1);
+	retval = target_resume(target, false, entry_point, true, true);
 	if (retval != ERROR_OK)
 		return retval;
 
@@ -1705,7 +1705,7 @@ static int dsp563xx_write_memory_core(struct target *target,
 		count);
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -1972,7 +1972,7 @@ static int dsp563xx_add_custom_watchpoint(struct target *target, uint32_t addres
 
 	if (err == ERROR_OK && was_running) {
 		/* Resume from current PC */
-		err = dsp563xx_resume(target, 1, 0x0, 0, 0);
+		err = dsp563xx_resume(target, true, 0x0, false, false);
 	}
 
 	return err;
@@ -2140,7 +2140,7 @@ COMMAND_HANDLER(dsp563xx_mem_command)
 			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], count);
 	}
 
-	buffer = calloc(count, sizeof(uint32_t));
+	buffer = calloc(count, 4);
 
 	if (read_mem == 1) {
 		err = dsp563xx_read_memory(target, mem_type, address, sizeof(uint32_t),

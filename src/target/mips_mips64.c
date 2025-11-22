@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /*
  * MIPS64 generic target support
@@ -202,12 +202,6 @@ static int mips_mips64_deassert_reset(struct target *target)
 	/* deassert reset lines */
 	jtag_add_reset(0, 0);
 
-	return ERROR_OK;
-}
-
-static int mips_mips64_soft_reset_halt(struct target *target)
-{
-	/* TODO */
 	return ERROR_OK;
 }
 
@@ -598,9 +592,9 @@ static int mips_mips64_unset_breakpoint(struct target *target,
 	return ERROR_OK;
 }
 
-static int mips_mips64_resume(struct target *target, int current,
-			      uint64_t address, int handle_breakpoints,
-			      int debug_execution)
+static int mips_mips64_resume(struct target *target, bool current,
+			      uint64_t address, bool handle_breakpoints,
+			      bool debug_execution)
 {
 	struct mips64_common *mips64 = target->arch_info;
 	struct mips_ejtag *ejtag_info = &mips64->ejtag_info;
@@ -612,7 +606,7 @@ static int mips_mips64_resume(struct target *target, int current,
 		address = mips64_extend_sign(address);
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted %d", target->state);
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -628,11 +622,11 @@ static int mips_mips64_resume(struct target *target, int current,
 	}
 
 	pc = &mips64->core_cache->reg_list[MIPS64_PC];
-	/* current = 1: continue on current pc, otherwise continue at <address> */
+	/* current = true: continue on current pc, otherwise continue at <address> */
 	if (!current) {
 		buf_set_u64(pc->value, 0, 64, address);
-		pc->dirty = 1;
-		pc->valid = 1;
+		pc->dirty = true;
+		pc->valid = true;
 	}
 
 	resume_pc = buf_get_u64(pc->value, 0, 64);
@@ -702,8 +696,8 @@ static int mips_mips64_resume(struct target *target, int current,
 	return ERROR_OK;
 }
 
-static int mips_mips64_step(struct target *target, int current,
-			    uint64_t address, int handle_breakpoints)
+static int mips_mips64_step(struct target *target, bool current,
+			    uint64_t address, bool handle_breakpoints)
 {
 	struct mips64_common *mips64 = target->arch_info;
 	struct mips_ejtag *ejtag_info = &mips64->ejtag_info;
@@ -712,19 +706,19 @@ static int mips_mips64_step(struct target *target, int current,
 	int retval = ERROR_OK;
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
 	if (mips64->mips64mode32)
 		address = mips64_extend_sign(address);
 
-	/* current = 1: continue on current pc, otherwise continue at
+	/* current = true: continue on current pc, otherwise continue at
 	 * <address> */
 	if (!current) {
 		buf_set_u64(pc->value, 0, 64, address);
-		pc->dirty = 1;
-		pc->valid = 1;
+		pc->dirty = true;
+		pc->valid = true;
 	}
 
 	/* the front-end may request us not to handle breakpoints */
@@ -810,7 +804,7 @@ static int mips_mips64_remove_breakpoint(struct target *target,
 	int retval = ERROR_OK;
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -871,7 +865,7 @@ static int mips_mips64_remove_watchpoint(struct target *target,
 	int retval = ERROR_OK;
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -892,7 +886,7 @@ static int mips_mips64_read_memory(struct target *target, uint64_t address,
 	void *t;
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted %d", target->state);
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -1020,7 +1014,7 @@ static int mips_mips64_write_memory(struct target *target, uint64_t address,
 	int retval;
 
 	if (target->state != TARGET_HALTED) {
-		LOG_WARNING("target not halted");
+		LOG_TARGET_ERROR(target, "not halted");
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
@@ -1088,7 +1082,7 @@ static int mips_mips64_init_target(struct command_context *cmd_ctx,
 	return mips64_build_reg_cache(target);
 }
 
-static int mips_mips64_target_create(struct target *target, Jim_Interp *interp)
+static int mips_mips64_target_create(struct target *target)
 {
 	struct mips_mips64_common *mips_mips64;
 	struct mips64_common *mips64;
@@ -1168,7 +1162,7 @@ struct target_type mips_mips64_target = {
 
 	.assert_reset = mips_mips64_assert_reset,
 	.deassert_reset = mips_mips64_deassert_reset,
-	.soft_reset_halt = mips_mips64_soft_reset_halt,
+	/* TODO: add .soft_reset_halt */
 
 	.get_gdb_reg_list = mips64_get_gdb_reg_list,
 

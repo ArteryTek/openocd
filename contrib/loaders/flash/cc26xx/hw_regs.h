@@ -1,34 +1,8 @@
+/* SPDX-License-Identifier: BSD-3-Clause */
+
 /******************************************************************************
 *
 * Copyright (C) 2017-2018 Texas Instruments Incorporated - http://www.ti.com/
-*
-* Redistribution and use in source and binary forms, with or without
-* modification, are permitted provided that the following conditions
-* are met:
-*
-*  Redistributions of source code must retain the above copyright
-*  notice, this list of conditions and the following disclaimer.
-*
-*  Redistributions in binary form must reproduce the above copyright
-*  notice, this list of conditions and the following disclaimer in the
-*  documentation and/or other materials provided with the
-*  distribution.
-*
-*  Neither the name of Texas Instruments Incorporated nor the names of
-*  its contributors may be used to endorse or promote products derived
-*  from this software without specific prior written permission.
-*
-* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-* "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-* LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-* A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-* OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-* SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-* LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-* DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-* THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-* OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *
 ******************************************************************************/
 
@@ -142,6 +116,10 @@
 /* FMC Sequential Pump Information */
 #define FLASH_O_FSEQPMP                                             0x000020A8
 
+#define FLASH_O_FADDR                                               0x00002110
+
+#define FLASH_O_FWPWRITE0                                           0x00002120
+
 /* FMC FSM Command */
 #define FLASH_O_FSM_CMD                                             0x0000220C
 
@@ -205,8 +183,13 @@
 /* FMC FSM Sector Erased  2 */
 #define FLASH_O_FSM_SECTOR2                                         0x000022C4
 
+#define FLASH_O_FCFG_BANK                                           0x00002400
+
 /* FMC Flash Bank 0 Starting Address */
 #define FLASH_O_FCFG_B0_START                                       0x00002410
+
+/* FMC Flash Bank 1 Starting Address */
+#define FLASH_O_FCFG_B1_START                                       0x00002414
 
 /* FMC Flash Bank 0 Sector Size 0 */
 #define FLASH_O_FCFG_B0_SSIZE0                                      0x00002430
@@ -1378,5 +1361,17 @@
 * 0: DCDC or GLDO are generating VDDR
 * 1: DCDC and GLDO are bypassed and an external regulator supplies VDDR */
 #define AON_PMCTL_PWRCTL_EXT_REG_MODE                               0x00000002
+
+/* Field:   [3:0] MAIN_NUM_BANK */
+#define FLASH_FCFG_BANK_MAIN_NUM_BANK_M 0x0000000F
+#define FLASH_FCFG_BANK_MAIN_NUM_BANK_S 0
+
+/* Field:  [23:0] B1_START_ADDR */
+#define FLASH_FCFG_B1_START_B1_START_ADDR_M 0x00FFFFFF
+#define FLASH_FCFG_B1_START_B1_START_ADDR_S 0
+
+/* Field:  [15:4] MAIN_BANK_WIDTH */
+#define FLASH_FCFG_BANK_MAIN_BANK_WIDTH_M 0x0000FFF0
+#define FLASH_FCFG_BANK_MAIN_BANK_WIDTH_S 4
 
 #endif /* #ifndef OPENOCD_LOADERS_FLASH_CC26XX_HW_REGS_H */

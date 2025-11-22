@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2007 by Pavel Chromy                                    *
@@ -160,7 +160,7 @@ static int ocl_write(struct flash_bank *bank, const uint8_t *buffer, uint32_t of
 		retval = embeddedice_send(ocl->jtag_info, dcc_buffer, dcc_bufptr-dcc_buffer);
 		if (retval != ERROR_OK) {
 			free(dcc_buffer);
-		  return retval;
+			return retval;
 		}
 
 		/* wait for response, fixed timeout of 1 s */

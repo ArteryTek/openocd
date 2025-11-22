@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath                                    *
@@ -24,20 +24,20 @@
 
 static uint8_t output_value;
 static int dev_mem_fd;
-static void *gpio_controller;
+static uint8_t *gpio_controller;
 static volatile uint8_t *gpio_data_register;
 static volatile uint8_t *gpio_data_direction_register;
 
 /* low level command set
  */
-static bb_value_t ep93xx_read(void);
+static enum bb_value ep93xx_read(void);
 static int ep93xx_write(int tck, int tms, int tdi);
 static int ep93xx_reset(int trst, int srst);
 
 static int ep93xx_init(void);
 static int ep93xx_quit(void);
 
-struct timespec ep93xx_zzzz;
+static struct timespec ep93xx_zzzz;
 
 static struct jtag_interface ep93xx_interface = {
 	.supported = DEBUG_CAP_TMS_SEQ,
@@ -46,7 +46,8 @@ static struct jtag_interface ep93xx_interface = {
 
 struct adapter_driver ep93xx_adapter_driver = {
 	.name = "ep93xx",
-	.transports = jtag_only,
+	.transport_ids = TRANSPORT_JTAG,
+	.transport_preferred_id = TRANSPORT_JTAG,
 
 	.init = ep93xx_init,
 	.quit = ep93xx_quit,
@@ -55,13 +56,13 @@ struct adapter_driver ep93xx_adapter_driver = {
 	.jtag_ops = &ep93xx_interface,
 };
 
-static struct bitbang_interface ep93xx_bitbang = {
+static const struct bitbang_interface ep93xx_bitbang = {
 	.read = ep93xx_read,
 	.write = ep93xx_write,
-	.blink = 0,
+	.blink = NULL,
 };
 
-static bb_value_t ep93xx_read(void)
+static enum bb_value ep93xx_read(void)
 {
 	return (*gpio_data_register & TDO_BIT) ? BB_HIGH : BB_LOW;
 }
@@ -110,19 +111,16 @@ static int ep93xx_reset(int trst, int srst)
 
 static int set_gonk_mode(void)
 {
-	void *syscon;
-	uint32_t devicecfg;
-
-	syscon = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+	void *syscon = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
 			MAP_SHARED, dev_mem_fd, 0x80930000);
 	if (syscon == MAP_FAILED) {
 		LOG_ERROR("mmap: %s", strerror(errno));
 		return ERROR_JTAG_INIT_FAILED;
 	}
 
-	devicecfg = *((volatile int *)(syscon + 0x80));
-	*((volatile int *)(syscon + 0xc0)) = 0xaa;
-	*((volatile int *)(syscon + 0x80)) = devicecfg | 0x08000000;
+	uint32_t devicecfg = *((volatile uint32_t *)((uintptr_t)syscon + 0x80));
+	*((volatile uint32_t *)((uintptr_t)syscon + 0xc0)) = 0xaa;
+	*((volatile uint32_t *)((uintptr_t)syscon + 0x80)) = devicecfg | 0x08000000;
 
 	munmap(syscon, 4096);
 

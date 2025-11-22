@@ -49,7 +49,7 @@ enum {
 
 	ARMV8_SP = 31,
 	ARMV8_PC = 32,
-	ARMV8_xPSR = 33,
+	ARMV8_XPSR = 33,
 
 	ARMV8_V0 = 34,
 	ARMV8_V1,
@@ -98,6 +98,10 @@ enum {
 	ARMV8_ESR_EL3 = 75,
 	ARMV8_SPSR_EL3 = 76,
 
+	/* Pseudo registers defined by GDB to remove the pauth signature. */
+	ARMV8_PAUTH_DMASK = 77,
+	ARMV8_PAUTH_CMASK = 78,
+
 	ARMV8_LAST_REG,
 };
 
@@ -108,7 +112,7 @@ enum run_control_op {
 	ARMV8_RUNCONTROL_STEP = 3,
 };
 
-#define ARMV8_COMMON_MAGIC 0x0A450AAA
+#define ARMV8_COMMON_MAGIC 0x0A450AAAU
 
 /* VA to PA translation operations opc2 values*/
 #define V2PCWPR  0
@@ -158,6 +162,7 @@ struct armv8_cache_common {
 	/* l2 external unified cache if some */
 	void *l2_cache;
 	int (*flush_all_data_cache)(struct target *target);
+	int (*invalidate_all_instruction_cache)(struct target *target);
 	int (*display_cache_info)(struct command_invocation *cmd,
 			struct armv8_cache_common *armv8_cache);
 };
@@ -178,8 +183,9 @@ struct armv8_mmu_common {
 };
 
 struct armv8_common {
+	unsigned int common_magic;
+
 	struct arm arm;
-	int common_magic;
 	struct reg_cache *core_cache;
 
 	/* Core Debug Unit */
@@ -189,20 +195,21 @@ struct armv8_common {
 
 	const uint32_t *opcodes;
 
-	/* mdir */
-	uint8_t multi_processor_system;
-	uint8_t cluster_id;
-	uint8_t cpu_id;
-
 	/* armv8 aarch64 need below information for page translation */
 	uint8_t va_size;
 	uint8_t pa_size;
 	uint32_t page_size;
 	uint64_t ttbr_base;
+	bool is_armv8r;
 
 	struct armv8_mmu_common armv8_mmu;
 
 	struct arm_cti *cti;
+
+	/* True if OpenOCD provides pointer auth related info to GDB */
+	bool enable_pauth;
+
+	bool sticky_reset;
 
 	/* last run-control command issued to this target (resume, halt, step) */
 	enum run_control_op last_run_control_op;
@@ -287,7 +294,6 @@ int armv8_identify_cache(struct armv8_common *armv8);
 int armv8_init_arch_info(struct target *target, struct armv8_common *armv8);
 int armv8_mmu_translate_va_pa(struct target *target, target_addr_t va,
 		target_addr_t *val, int meminfo);
-int armv8_mmu_translate_va(struct target *target,  target_addr_t va, target_addr_t *val);
 
 int armv8_handle_cache_info_command(struct command_invocation *cmd,
 		struct armv8_cache_common *armv8_cache);
@@ -318,7 +324,7 @@ static inline unsigned int armv8_curel_from_core_mode(enum arm_mode core_mode)
 	}
 }
 
-const char *armv8_mode_name(unsigned psr_mode);
+const char *armv8_mode_name(unsigned int psr_mode);
 void armv8_select_reg_access(struct armv8_common *armv8, bool is_aarch64);
 int armv8_set_dbgreg_bits(struct armv8_common *armv8, unsigned int reg, unsigned long mask, unsigned long value);
 

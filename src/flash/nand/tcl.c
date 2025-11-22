@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2007 by Dominic Rath <Dominic.Rath@gmx.de>              *
@@ -16,9 +16,6 @@
 #include "imp.h"
 #include "fileio.h"
 #include <target/target.h>
-
-/* to be removed */
-extern struct nand_device *nand_devices;
 
 COMMAND_HANDLER(handle_nand_list_command)
 {

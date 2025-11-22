@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /*
  * Copyright (C) 2015 by Matthias Welwarsky <matthias.welwarsky@sysgo.com>
@@ -36,9 +36,12 @@ static const uint32_t a64_opcodes[ARMV8_OPC_NUM] = {
 		[ARMV8_OPC_LDRB_IP]	= ARMV8_LDRB_IP(1, 0),
 		[ARMV8_OPC_LDRH_IP]	= ARMV8_LDRH_IP(1, 0),
 		[ARMV8_OPC_LDRW_IP]	= ARMV8_LDRW_IP(1, 0),
+		[ARMV8_OPC_LDRD_IP]	= ARMV8_LDRD_IP(1, 0),
 		[ARMV8_OPC_STRB_IP]	= ARMV8_STRB_IP(1, 0),
 		[ARMV8_OPC_STRH_IP]	= ARMV8_STRH_IP(1, 0),
 		[ARMV8_OPC_STRW_IP]	= ARMV8_STRW_IP(1, 0),
+		[ARMV8_OPC_STRD_IP]	= ARMV8_STRD_IP(1, 0),
+		[ARMV8_OPC_ICIALLU]	= ARMV8_SYS(SYSTEM_ICIALLU, 0x1F),
 };
 
 static const uint32_t t32_opcodes[ARMV8_OPC_NUM] = {
@@ -66,6 +69,7 @@ static const uint32_t t32_opcodes[ARMV8_OPC_NUM] = {
 		[ARMV8_OPC_STRB_IP]	= ARMV8_STRB_IP_T3(1, 0),
 		[ARMV8_OPC_STRH_IP]	= ARMV8_STRH_IP_T3(1, 0),
 		[ARMV8_OPC_STRW_IP]	= ARMV8_STRW_IP_T3(1, 0),
+		[ARMV8_OPC_ICIALLU]	= ARMV4_5_MCR(15, 0, 0, 7, 5, 0),
 };
 
 void armv8_select_opcodes(struct armv8_common *armv8, bool state_is_aarch64)

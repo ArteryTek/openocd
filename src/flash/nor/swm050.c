@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *   Copyright (C) 2019 Icenowy Zheng <icenowy@aosc.io>                    *
@@ -183,7 +183,7 @@ static const struct command_registration swm050_command_handlers[] = {
 	COMMAND_REGISTRATION_DONE
 };
 
-struct flash_driver swm050_flash = {
+const struct flash_driver swm050_flash = {
 	.name = "swm050",
 	.commands = swm050_command_handlers,
 	.flash_bank_command = swm050_flash_bank_command,

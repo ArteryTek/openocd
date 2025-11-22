@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
  *    Copyright (C) 2009 by David Brownell                                 *
@@ -68,13 +68,13 @@ static void armv7a_show_fault_registers(struct target *target)
 	if (retval != ERROR_OK)
 		goto done;
 
-	LOG_USER("Data fault registers        DFSR: %8.8" PRIx32
+	LOG_TARGET_USER(target, "Data fault registers        DFSR: %8.8" PRIx32
 		", DFAR: %8.8" PRIx32, dfsr, dfar);
-	LOG_USER("Instruction fault registers IFSR: %8.8" PRIx32
+	LOG_TARGET_USER(target, "Instruction fault registers IFSR: %8.8" PRIx32
 		", IFAR: %8.8" PRIx32, ifsr, ifar);
 
 done:
-	/* (void) */ dpm->finish(dpm);
+	dpm->finish(dpm);
 }
 
 
@@ -101,14 +101,14 @@ static int armv7a_read_midr(struct target *target)
 	armv7a->arch = (midr >> 16) & 0xf;
 	armv7a->variant = (midr >> 20) & 0xf;
 	armv7a->implementor = (midr >> 24) & 0xff;
-	LOG_DEBUG("%s rev %" PRIx32 ", partnum %" PRIx32 ", arch %" PRIx32
-			 ", variant %" PRIx32 ", implementor %" PRIx32,
-		 target->cmd_name,
-		 armv7a->rev,
-		 armv7a->partnum,
-		 armv7a->arch,
-		 armv7a->variant,
-		 armv7a->implementor);
+	LOG_TARGET_DEBUG(target,
+		"rev %" PRIx32 ", partnum %" PRIx32 ", arch %" PRIx32
+		", variant %" PRIx32 ", implementor %" PRIx32,
+		armv7a->rev,
+		armv7a->partnum,
+		armv7a->arch,
+		armv7a->variant,
+		armv7a->implementor);
 
 done:
 	dpm->finish(dpm);
@@ -134,7 +134,7 @@ int armv7a_read_ttbcr(struct target *target)
 	if (retval != ERROR_OK)
 		goto done;
 
-	LOG_DEBUG("ttbcr %" PRIx32, ttbcr);
+	LOG_TARGET_DEBUG(target, "ttbcr %" PRIx32, ttbcr);
 
 	ttbcr_n = ttbcr & 0x7;
 	armv7a->armv7a_mmu.ttbcr = ttbcr;
@@ -169,7 +169,7 @@ int armv7a_read_ttbcr(struct target *target)
 		armv7a->armv7a_mmu.ttbr_mask[0]  = 7 << (32 - ttbcr_n);
 	}
 
-	LOG_DEBUG("ttbr1 %s, ttbr0_mask %" PRIx32 " ttbr1_mask %" PRIx32,
+	LOG_TARGET_DEBUG(target, "ttbr1 %s, ttbr0_mask %" PRIx32 " ttbr1_mask %" PRIx32,
 		  (ttbcr_n != 0) ? "used" : "not used",
 		  armv7a->armv7a_mmu.ttbr_mask[0],
 		  armv7a->armv7a_mmu.ttbr_mask[1]);
@@ -179,59 +179,10 @@ done:
 	return retval;
 }
 
-/* FIXME: remove it */
-static int armv7a_l2x_cache_init(struct target *target, uint32_t base, uint32_t way)
-{
-	struct armv7a_l2x_cache *l2x_cache;
-	struct target_list *head;
-
-	struct armv7a_common *armv7a = target_to_armv7a(target);
-	l2x_cache = calloc(1, sizeof(struct armv7a_l2x_cache));
-	l2x_cache->base = base;
-	l2x_cache->way = way;
-	/*LOG_INFO("cache l2 initialized base %x  way %d",
-	l2x_cache->base,l2x_cache->way);*/
-	if (armv7a->armv7a_mmu.armv7a_cache.outer_cache)
-		LOG_INFO("outer cache already initialized\n");
-	armv7a->armv7a_mmu.armv7a_cache.outer_cache = l2x_cache;
-	/*  initialize all target in this cluster (smp target)
-	 *  l2 cache must be configured after smp declaration */
-	foreach_smp_target(head, target->smp_targets) {
-		struct target *curr = head->target;
-		if (curr != target) {
-			armv7a = target_to_armv7a(curr);
-			if (armv7a->armv7a_mmu.armv7a_cache.outer_cache)
-				LOG_ERROR("smp target : outer cache already initialized\n");
-			armv7a->armv7a_mmu.armv7a_cache.outer_cache = l2x_cache;
-		}
-	}
-	return JIM_OK;
-}
-
-/* FIXME: remove it */
-COMMAND_HANDLER(handle_cache_l2x)
-{
-	struct target *target = get_current_target(CMD_CTX);
-	uint32_t base, way;
-
-	if (CMD_ARGC != 2)
-		return ERROR_COMMAND_SYNTAX_ERROR;
-
-	/* command_print(CMD, "%s %s", CMD_ARGV[0], CMD_ARGV[1]); */
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], base);
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], way);
-
-	/* AP address is in bits 31:24 of DP_SELECT */
-	armv7a_l2x_cache_init(target, base, way);
-
-	return ERROR_OK;
-}
-
 int armv7a_handle_cache_info_command(struct command_invocation *cmd,
 	struct armv7a_cache_common *armv7a_cache)
 {
-	struct armv7a_l2x_cache *l2x_cache = (struct armv7a_l2x_cache *)
-		(armv7a_cache->outer_cache);
+	struct armv7a_l2x_cache *l2x_cache = armv7a_cache->outer_cache;
 
 	int cl;
 
@@ -297,14 +248,13 @@ static int armv7a_read_mpidr(struct target *target)
 
 	/* Is register in Multiprocessing Extensions register format? */
 	if (mpidr & MPIDR_MP_EXT) {
-		LOG_DEBUG("%s: MPIDR 0x%" PRIx32, target_name(target), mpidr);
+		LOG_TARGET_DEBUG(target, "%s: MPIDR 0x%" PRIx32, target_name(target), mpidr);
 		armv7a->multi_processor_system = (mpidr >> 30) & 1;
 		armv7a->multi_threading_processor = (mpidr >> 24) & 1;
 		armv7a->level2_id = (mpidr >> 16) & 0xf;
 		armv7a->cluster_id = (mpidr >> 8) & 0xf;
 		armv7a->cpu_id = mpidr & 0xf;
-		LOG_INFO("%s: MPIDR level2 %x, cluster %x, core %x, %s, %s",
-			target_name(target),
+		LOG_TARGET_INFO(target, "MPIDR level2 %x, cluster %x, core %x, %s, %s",
 			armv7a->level2_id,
 			armv7a->cluster_id,
 			armv7a->cpu_id,
@@ -312,7 +262,7 @@ static int armv7a_read_mpidr(struct target *target)
 			armv7a->multi_threading_processor == 1 ? "SMT" : "no SMT");
 
 	} else
-		LOG_ERROR("MPIDR not in multiprocessor format");
+		LOG_TARGET_DEBUG(target, "MPIDR not in multiprocessor format");
 
 done:
 	dpm->finish(dpm);
@@ -387,7 +337,7 @@ int armv7a_identify_cache(struct target *target)
 
 	cache->iminline = 4UL << (ctr & 0xf);
 	cache->dminline = 4UL << ((ctr & 0xf0000) >> 16);
-	LOG_DEBUG("ctr %" PRIx32 " ctr.iminline %" PRIu32 " ctr.dminline %" PRIu32,
+	LOG_TARGET_DEBUG(target, "ctr %" PRIx32 " ctr.iminline %" PRIu32 " ctr.dminline %" PRIu32,
 		 ctr, cache->iminline, cache->dminline);
 
 	/*  retrieve CLIDR
@@ -399,7 +349,7 @@ int armv7a_identify_cache(struct target *target)
 		goto done;
 
 	cache->loc = (clidr & 0x7000000) >> 24;
-	LOG_DEBUG("Number of cache levels to PoC %" PRId32, cache->loc);
+	LOG_TARGET_DEBUG(target, "Number of cache levels to PoC %" PRId32, cache->loc);
 
 	/*  retrieve selected cache for later restore
 	 *  MRC p15, 2,<Rd>, c0, c0, 0; Read CSSELR */
@@ -427,13 +377,13 @@ int armv7a_identify_cache(struct target *target)
 				goto done;
 			cache->arch[cl].d_u_size = decode_cache_reg(cache_reg);
 
-			LOG_DEBUG("data/unified cache index %" PRIu32 " << %" PRIu32 ", way %" PRIu32 " << %" PRIu32,
+			LOG_TARGET_DEBUG(target, "data/unified cache index %" PRIu32 " << %" PRIu32 ", way %" PRIu32 " << %" PRIu32,
 					cache->arch[cl].d_u_size.index,
 					cache->arch[cl].d_u_size.index_shift,
 					cache->arch[cl].d_u_size.way,
 					cache->arch[cl].d_u_size.way_shift);
 
-			LOG_DEBUG("cacheline %" PRIu32 " bytes %" PRIu32 " KBytes asso %" PRIu32 " ways",
+			LOG_TARGET_DEBUG(target, "cacheline %" PRIu32 " bytes %" PRIu32 " KBytes asso %" PRIu32 " ways",
 					cache->arch[cl].d_u_size.linelen,
 					cache->arch[cl].d_u_size.cachesize,
 					cache->arch[cl].d_u_size.associativity);
@@ -447,13 +397,13 @@ int armv7a_identify_cache(struct target *target)
 				goto done;
 			cache->arch[cl].i_size = decode_cache_reg(cache_reg);
 
-			LOG_DEBUG("instruction cache index %" PRIu32 " << %" PRIu32 ", way %" PRIu32 " << %" PRIu32,
+			LOG_TARGET_DEBUG(target, "instruction cache index %" PRIu32 " << %" PRIu32 ", way %" PRIu32 " << %" PRIu32,
 					cache->arch[cl].i_size.index,
 					cache->arch[cl].i_size.index_shift,
 					cache->arch[cl].i_size.way,
 					cache->arch[cl].i_size.way_shift);
 
-			LOG_DEBUG("cacheline %" PRIu32 " bytes %" PRIu32 " KBytes asso %" PRIu32 " ways",
+			LOG_TARGET_DEBUG(target, "cacheline %" PRIu32 " bytes %" PRIu32 " KBytes asso %" PRIu32 " ways",
 					cache->arch[cl].i_size.linelen,
 					cache->arch[cl].i_size.cachesize,
 					cache->arch[cl].i_size.associativity);
@@ -473,7 +423,7 @@ int armv7a_identify_cache(struct target *target)
 	/*  if no l2 cache initialize l1 data cache flush function function */
 	if (!armv7a->armv7a_mmu.armv7a_cache.flush_all_data_cache) {
 		armv7a->armv7a_mmu.armv7a_cache.flush_all_data_cache =
-			armv7a_cache_auto_flush_all_data;
+			armv7a_cache_flush_all_data;
 	}
 
 	armv7a->armv7a_mmu.armv7a_cache.info = 1;
@@ -494,7 +444,7 @@ static int armv7a_setup_semihosting(struct target *target, int enable)
 					 armv7a->debug_base + CPUDBG_VCR,
 					 &vcr);
 	if (ret < 0) {
-		LOG_ERROR("Failed to read VCR register\n");
+		LOG_TARGET_ERROR(target, "Failed to read VCR register");
 		return ret;
 	}
 
@@ -507,7 +457,7 @@ static int armv7a_setup_semihosting(struct target *target, int enable)
 					  armv7a->debug_base + CPUDBG_VCR,
 					  vcr);
 	if (ret < 0)
-		LOG_ERROR("Failed to write VCR register\n");
+		LOG_TARGET_ERROR(target, "Failed to write VCR register");
 
 	return ret;
 }
@@ -525,7 +475,6 @@ int armv7a_init_arch_info(struct target *target, struct armv7a_common *armv7a)
 	armv7a->armv7a_mmu.armv7a_cache.info = -1;
 	armv7a->armv7a_mmu.armv7a_cache.outer_cache = NULL;
 	armv7a->armv7a_mmu.armv7a_cache.flush_all_data_cache = NULL;
-	armv7a->armv7a_mmu.armv7a_cache.auto_cache_enabled = 1;
 	return ERROR_OK;
 }
 
@@ -539,18 +488,18 @@ int armv7a_arch_state(struct target *target)
 	struct arm *arm = &armv7a->arm;
 
 	if (armv7a->common_magic != ARMV7_COMMON_MAGIC) {
-		LOG_ERROR("BUG: called for a non-ARMv7A target");
+		LOG_TARGET_ERROR(target, "BUG: called for a non-ARMv7A target");
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
 	arm_arch_state(target);
 
 	if (armv7a->is_armv7r) {
-		LOG_USER("D-Cache: %s, I-Cache: %s",
+		LOG_TARGET_USER(target, "D-Cache: %s, I-Cache: %s",
 			state[armv7a->armv7a_mmu.armv7a_cache.d_u_cache_enabled],
 			state[armv7a->armv7a_mmu.armv7a_cache.i_cache_enabled]);
 	} else {
-		LOG_USER("MMU: %s, D-Cache: %s, I-Cache: %s",
+		LOG_TARGET_USER(target, "MMU: %s, D-Cache: %s, I-Cache: %s",
 			state[armv7a->armv7a_mmu.mmu_enabled],
 			state[armv7a->armv7a_mmu.armv7a_cache.d_u_cache_enabled],
 			state[armv7a->armv7a_mmu.armv7a_cache.i_cache_enabled]);
@@ -562,33 +511,7 @@ int armv7a_arch_state(struct target *target)
 	return ERROR_OK;
 }
 
-static const struct command_registration l2_cache_commands[] = {
-	{
-		.name = "l2x",
-		.handler = handle_cache_l2x,
-		.mode = COMMAND_EXEC,
-		.help = "configure l2x cache",
-		.usage = "[base_addr] [number_of_way]",
-	},
-	COMMAND_REGISTRATION_DONE
-
-};
-
-static const struct command_registration l2x_cache_command_handlers[] = {
-	{
-		.name = "cache_config",
-		.mode = COMMAND_EXEC,
-		.help = "cache configuration for a target",
-		.usage = "",
-		.chain = l2_cache_commands,
-	},
-	COMMAND_REGISTRATION_DONE
-};
-
 const struct command_registration armv7a_command_handlers[] = {
-	{
-		.chain = l2x_cache_command_handlers,
-	},
 	{
 		.chain = arm7a_cache_command_handlers,
 	},

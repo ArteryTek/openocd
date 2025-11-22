@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /*
  * Copyright (C) 2019-2020 by Marc Schink <dev@zapb.de>
@@ -17,10 +17,16 @@
 
 COMMAND_HANDLER(handle_rtt_setup_command)
 {
-struct rtt_source source;
+	struct rtt_source source;
 
-	if (CMD_ARGC != 3)
+	const char *DEFAULT_ID = "SEGGER RTT";
+	const char *selected_id;
+	if (CMD_ARGC < 2 || CMD_ARGC > 3)
 		return ERROR_COMMAND_SYNTAX_ERROR;
+	if (CMD_ARGC == 2)
+		selected_id = DEFAULT_ID;
+	else
+		selected_id = CMD_ARGV[2];
 
 	source.find_cb = &target_rtt_find_control_block;
 	source.read_cb = &target_rtt_read_control_block;
@@ -38,7 +44,7 @@ struct rtt_source source;
 
 	rtt_register_source(source, get_current_target(CMD_CTX));
 
-	if (rtt_setup(address, size, CMD_ARGV[2]) != ERROR_OK)
+	if (rtt_setup(address, size, selected_id) != ERROR_OK)
 		return ERROR_FAIL;
 
 	return ERROR_OK;
@@ -150,17 +156,17 @@ COMMAND_HANDLER(handle_rtt_channels_command)
 	return ERROR_OK;
 }
 
-static int jim_channel_list(Jim_Interp *interp, int argc,
-	Jim_Obj * const *argv)
+COMMAND_HANDLER(handle_channel_list)
 {
-	Jim_Obj *list;
-	Jim_Obj *channel_list;
 	char channel_name[CHANNEL_NAME_SIZE];
 	const struct rtt_control *ctrl;
 	struct rtt_channel_info info;
 
+	if (CMD_ARGC != 0)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
 	if (!rtt_found_cb()) {
-		Jim_SetResultFormatted(interp, "rtt: Control block not available");
+		command_print(CMD, "rtt: Control block not available");
 		return ERROR_FAIL;
 	}
 
@@ -169,81 +175,47 @@ static int jim_channel_list(Jim_Interp *interp, int argc,
 	info.name = channel_name;
 	info.name_length = sizeof(channel_name);
 
-	list = Jim_NewListObj(interp, NULL, 0);
-	channel_list = Jim_NewListObj(interp, NULL, 0);
+	command_print(CMD, "{");
 
 	for (unsigned int i = 0; i < ctrl->num_up_channels; i++) {
-		int ret;
-		Jim_Obj *tmp;
-
-		ret = rtt_read_channel_info(i, RTT_CHANNEL_TYPE_UP, &info);
-
+		int ret = rtt_read_channel_info(i, RTT_CHANNEL_TYPE_UP, &info);
 		if (ret != ERROR_OK)
 			return ret;
 
 		if (!info.size)
 			continue;
 
-		tmp = Jim_NewListObj(interp, NULL, 0);
-
-		Jim_ListAppendElement(interp, tmp, Jim_NewStringObj(interp,
-			"name", -1));
-		Jim_ListAppendElement(interp, tmp, Jim_NewStringObj(interp,
-			info.name, -1));
-
-		Jim_ListAppendElement(interp, tmp, Jim_NewStringObj(interp,
-			"size", -1));
-		Jim_ListAppendElement(interp, tmp, Jim_NewIntObj(interp,
-			info.size));
-
-		Jim_ListAppendElement(interp, tmp, Jim_NewStringObj(interp,
-			"flags", -1));
-		Jim_ListAppendElement(interp, tmp, Jim_NewIntObj(interp,
-			info.flags));
-
-		Jim_ListAppendElement(interp, channel_list, tmp);
+		command_print(CMD,
+			"    {\n"
+			"        name  %s\n"
+			"        size  0x%" PRIx32 "\n"
+			"        flags 0x%" PRIx32 "\n"
+			"    }",
+			info.name, info.size, info.flags);
 	}
 
-	Jim_ListAppendElement(interp, list, channel_list);
-
-	channel_list = Jim_NewListObj(interp, NULL, 0);
+	command_print(CMD, "}\n{");
 
 	for (unsigned int i = 0; i < ctrl->num_down_channels; i++) {
-		int ret;
-		Jim_Obj *tmp;
-
-		ret = rtt_read_channel_info(i, RTT_CHANNEL_TYPE_DOWN, &info);
-
+		int ret = rtt_read_channel_info(i, RTT_CHANNEL_TYPE_DOWN, &info);
 		if (ret != ERROR_OK)
 			return ret;
 
 		if (!info.size)
 			continue;
 
-		tmp = Jim_NewListObj(interp, NULL, 0);
-
-		Jim_ListAppendElement(interp, tmp, Jim_NewStringObj(interp,
-			"name", -1));
-		Jim_ListAppendElement(interp, tmp, Jim_NewStringObj(interp,
-			info.name, -1));
-
-		Jim_ListAppendElement(interp, tmp, Jim_NewStringObj(interp,
-			"size", -1));
-		Jim_ListAppendElement(interp, tmp, Jim_NewIntObj(interp,
-			info.size));
-
-		Jim_ListAppendElement(interp, tmp, Jim_NewStringObj(interp,
-			"flags", -1));
-		Jim_ListAppendElement(interp, tmp, Jim_NewIntObj(interp,
-			info.flags));
-
-		Jim_ListAppendElement(interp, channel_list, tmp);
+		command_print(CMD,
+			"    {\n"
+			"        name  %s\n"
+			"        size  0x%" PRIx32 "\n"
+			"        flags 0x%" PRIx32 "\n"
+			"    }",
+			info.name, info.size, info.flags);
 	}
 
-	Jim_ListAppendElement(interp, list, channel_list);
-	Jim_SetResult(interp, list);
+	command_print(CMD, "}");
 
-	return JIM_OK;
+	return ERROR_OK;
 }
 
 static const struct command_registration rtt_subcommand_handlers[] = {
@@ -252,7 +224,7 @@ static const struct command_registration rtt_subcommand_handlers[] = {
 		.handler = handle_rtt_setup_command,
 		.mode = COMMAND_ANY,
 		.help = "setup RTT",
-		.usage = "<address> <size> <ID>"
+		.usage = "<address> <size> [ID]"
 	},
 	{
 		.name = "start",
@@ -284,7 +256,7 @@ static const struct command_registration rtt_subcommand_handlers[] = {
 	},
 	{
 		.name = "channellist",
-		.jim_handler = jim_channel_list,
+		.handler = handle_channel_list,
 		.mode = COMMAND_EXEC,
 		.help = "list available channels",
 		.usage = ""
