@@ -362,7 +362,7 @@ static int at32_get_device_info(struct flash_bank *bank)
 				at32x_info->cur_reg_base = at32_mcu_type[at32x_info->type_id].flash_bank1_reg;
 		}
 		else if((at32x_info->bank_addr == BANK2_BASE_ADDR || 
-		    at32x_info->bank_addr == BANK2_BASE_ADDR_4M) && 
+		    at32x_info->bank_addr == BANK2_BASE_ADDR_4M || at32x_info->bank_addr == 0) && 
 		   at32x_info->flash_size > 512)
 		{
 		      if(at32x_info->cur_reg_base == 0)
@@ -385,6 +385,7 @@ static int at32_get_device_info(struct flash_bank *bank)
 				}
 				else
 				{
+					at32x_info->bank_addr = BANK1_BASE_ADDR + 0x200000;
 					at32x_info->bank_size = (at32x_info->flash_size << 10) - 0x200000;
 					at32x_info->sector_num = at32x_info->bank_size / at32x_info->sector_size;
 				}
@@ -399,6 +400,7 @@ static int at32_get_device_info(struct flash_bank *bank)
 				}
 				else
 				{
+					at32x_info->bank_addr = BANK1_BASE_ADDR + 0x80000;
 					at32x_info->bank_size = (at32x_info->flash_size << 10) - 0x80000;
 					at32x_info->sector_num = at32x_info->bank_size / at32x_info->sector_size;
 				}
@@ -410,6 +412,7 @@ static int at32_get_device_info(struct flash_bank *bank)
 			at32x_info->bank_size = at32x_info->flash_size << 10;		
 		}
 		at32x_info->probed = 1;
+		bank->base = at32x_info->bank_addr;
 		LOG_INFO("main flash size: 0x%" PRIx32 ", sector num:  0x%" PRIx32 ", sector size: 0x%" PRIx32 ",  bank size: 0x%" PRIx32 "", 
 				 (at32x_info->flash_size << 10),  at32x_info->sector_num,  at32x_info->sector_size, at32x_info->bank_size);
 	}
@@ -940,7 +943,6 @@ cleanup:
 
 	return retval;
 }
-
 
 static int at32x_probe(struct flash_bank *bank)
 {
