@@ -391,7 +391,7 @@ static int at32_get_device_info(struct flash_bank *bank)
 				else
 				{
 					at32x_info->bank_addr = (((at32x_info->flash_size << 10) + 0x10000) >> 1) + BANK1_BASE_ADDR;//BANK1_BASE_ADDR + 0x200000;
-					at32x_info->bank_size = at32x_info->flash_size - (((at32x_info->flash_size << 10) + 0x10000) >> 1);//(at32x_info->flash_size << 10) - 0x200000;
+					at32x_info->bank_size = (at32x_info->flash_size << 10) - (((at32x_info->flash_size << 10) + 0x10000) >> 1);//(at32x_info->flash_size << 10) - 0x200000;
 					at32x_info->sector_num = at32x_info->bank_size / at32x_info->sector_size;
 				}
 			
