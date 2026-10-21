@@ -47,8 +47,8 @@
 
 #define BANK1_BASE_ADDR                   0x08000000
 #define BANK2_BASE_ADDR                   0x08080000
-#define BANK2_BASE_ADDR_4M             0x08200000
-#define SPIM_BASE_ADDR                      0x08400000
+#define BANK2_BASE_ADDR_4M                0x08200000
+#define SPIM_BASE_ADDR                    0x08400000
 
 /* sector size */
 #define SECTOR_SIZE_0_5K                  0x200
@@ -119,7 +119,7 @@ struct at32_flash_info
 	uint32_t        sector_num;
 	uint8_t         probed;
 	uint8_t         type_id;
-       uint32_t       usd_addr;
+    uint32_t        usd_addr;
 	mcu_type_info   *type;
 	struct at32x_usd_data usd_data;
 	struct at32_spim_info spim_info;
@@ -361,16 +361,21 @@ static int at32_get_device_info(struct flash_bank *bank)
 		       if(at32x_info->cur_reg_base == 0)	
 				at32x_info->cur_reg_base = at32_mcu_type[at32x_info->type_id].flash_bank1_reg;
 		}
-		else if((at32x_info->bank_addr == BANK2_BASE_ADDR || 
-		    at32x_info->bank_addr == BANK2_BASE_ADDR_4M || at32x_info->bank_addr == 0) && 
-		   at32x_info->flash_size > 512)
+		else if(at32x_info->flash_size > 512)
 		{
-		      if(at32x_info->cur_reg_base == 0)
+			if(at32x_info->cur_reg_base == 0)
 				at32x_info->cur_reg_base = at32_mcu_type[at32x_info->type_id].flash_bank2_reg;
 		}
+//		else if((at32x_info->bank_addr == BANK2_BASE_ADDR || 
+//		    at32x_info->bank_addr == BANK2_BASE_ADDR_4M || at32x_info->bank_addr == 0) && 
+//		   at32x_info->flash_size > 512)
+//		{
+//		      if(at32x_info->cur_reg_base == 0)
+//				at32x_info->cur_reg_base = at32_mcu_type[at32x_info->type_id].flash_bank2_reg;
+//		}
 		else
 		{
-			LOG_WARNING("not have this flash bank address:0x %" PRIx32 "", at32x_info->bank_addr);
+			LOG_WARNING("This flash bank address:0x %" PRIx32 "", at32x_info->bank_addr);
 		}
 
 		if(at32x_info->flash_size > 512)
@@ -380,13 +385,13 @@ static int at32_get_device_info(struct flash_bank *bank)
 			{
 				if(at32x_info->bank_addr == BANK1_BASE_ADDR)
 				{
-					at32x_info->bank_size = 0x200000;  //2048 Kb
+					at32x_info->bank_size = ((at32x_info->flash_size << 10) + 0x10000) >> 1;//0x200000;  //2048 Kb
 					at32x_info->sector_num = at32x_info->bank_size / at32x_info->sector_size;
 				}
 				else
 				{
-					at32x_info->bank_addr = BANK1_BASE_ADDR + 0x200000;
-					at32x_info->bank_size = (at32x_info->flash_size << 10) - 0x200000;
+					at32x_info->bank_addr = (((at32x_info->flash_size << 10) + 0x10000) >> 1) + BANK1_BASE_ADDR;//BANK1_BASE_ADDR + 0x200000;
+					at32x_info->bank_size = at32x_info->flash_size - (((at32x_info->flash_size << 10) + 0x10000) >> 1);//(at32x_info->flash_size << 10) - 0x200000;
 					at32x_info->sector_num = at32x_info->bank_size / at32x_info->sector_size;
 				}
 			
